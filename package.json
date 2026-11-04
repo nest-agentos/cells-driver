@@ -1,0 +1,107 @@
+{
+  "name": "@itookit/cells-driver",
+  "version": "0.4.3",
+  "description": "Platform-independent driver for cells, the intelligent nodes integrating information and agents into NestOS.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./harness": "./src/harness/index.ts",
+    "./sync": "./src/sync/client.ts",
+    "./authorization": "./src/authorization.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "tsup",
+    "prepublishOnly": "pnpm build"
+  },
+  "dependencies": {
+    "@itookit/vfs-core": "5.3.4",
+    "@itookit/vfs-sync": "0.1.1",
+    "@modelcontextprotocol/client": "2.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4",
+    "tsup": "^8.5.1",
+    "@types/node": "^20.19.25"
+  },
+  "publishConfig": {
+    "access": "public",
+    "main": "./dist/index.cjs",
+    "module": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "import": {
+          "types": "./dist/index.d.ts",
+          "default": "./dist/index.js"
+        },
+        "require": {
+          "types": "./dist/index.d.cts",
+          "default": "./dist/index.cjs"
+        }
+      },
+      "./harness": {
+        "import": {
+          "types": "./dist/harness/index.d.ts",
+          "default": "./dist/harness/index.js"
+        },
+        "require": {
+          "types": "./dist/harness/index.d.cts",
+          "default": "./dist/harness/index.cjs"
+        }
+      },
+      "./authorization": {
+        "import": {
+          "types": "./dist/authorization.d.ts",
+          "default": "./dist/authorization.js"
+        },
+        "require": {
+          "types": "./dist/authorization.d.cts",
+          "default": "./dist/authorization.cjs"
+        }
+      },
+      "./sync": {
+        "import": {
+          "types": "./dist/sync/client.d.ts",
+          "default": "./dist/sync/client.js"
+        },
+        "require": {
+          "types": "./dist/sync/client.d.cts",
+          "default": "./dist/sync/client.cjs"
+        }
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "license": "MIT",
+  "author": "lizlok@gmail.com",
+  "keywords": [
+    "itookit",
+    "nestos",
+    "cells",
+    "mcp",
+    "filesystem",
+    "sync",
+    "harness"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nest-agentos/cells-driver.git"
+  },
+  "bugs": {
+    "url": "https://github.com/nest-agentos/cells-driver/issues"
+  },
+  "homepage": "https://github.com/nest-agentos/cells-driver#readme",
+  "packageManager": "pnpm@10.20.0",
+  "engines": {
+    "node": ">=20"
+  }
+}

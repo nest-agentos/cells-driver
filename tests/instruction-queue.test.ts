@@ -1,0 +1,128 @@
+import {expect, it, vi} from 'vitest';
+import {HarnessInstructionRuntime} from '../src/harness/instruction-queue';
+import type {HarnessConversationSnapshot} from '../src/harness/conversation-snapshot';
+
+function fixture() {
+    let state = {canSend: false, active: true, pending: false, requests: [], observation: {execution: 'running'}} as unknown as HarnessConversationSnapshot;
+    const ports = {save: vi.fn(async () => {}), load: vi.fn(), snapshot: () => state, command: vi.fn(), completion: vi.fn(), reconcile: vi.fn(),
+        send: vi.fn(async (item: {id: string; attemptId?: string}) => {state = {...state, active: true, observation: {...state.observation, execution: 'running'},
+            submission: {id: item.attemptId ?? item.id, status: 'accepted', turnId: 'turn'}}; return state;})};
+    const runtime = new HarnessInstructionRuntime(ports), createdAt = Date.now();
+    const enqueue = (id: string) => runtime.enqueue({id, text: `Input ${id}`, attachments: [], createdAt, state: 'pending'});
+    const idle = () => {state = {...state, canSend: true, active: false, observation: {...state.observation, execution: 'idle'}};};
+    return {runtime, ports, enqueue, idle, createdAt};
+}
+
+it('persists separate queue, dispatch and native acceptance timestamps across recovery', async () => {
+    const f = fixture(); await f.enqueue('first'); await f.enqueue('second');
+    expect(f.runtime.projection().items[0].createdAt).toBe(f.createdAt);
+    expect(f.runtime.projection().items[0].dispatchedAt).toBeUndefined(); expect(f.runtime.projection().items[0].acceptedAt).toBeUndefined();
+    await f.runtime.pump(); expect(f.ports.send).not.toHaveBeenCalled();
+    f.idle(); await f.runtime.pump();
+    const item = f.runtime.projection().items[0];
+    expect(item.dispatchedAt).toBeGreaterThanOrEqual(f.createdAt); expect(item.acceptedAt).toBeGreaterThanOrEqual(item.dispatchedAt!);
+    expect(f.runtime.projection().submissions![0]).toMatchObject({id: 'first', turnId: 'turn', createdAt: f.createdAt,
+        dispatchedAt: item.dispatchedAt, acceptedAt: item.acceptedAt});
+    const record = structuredClone(f.runtime.record); f.runtime.restore(record);
+    expect(f.runtime.record).toEqual(record); await f.runtime.pump(); expect(f.ports.send).toHaveBeenCalledOnce();
+});
+
+it('merges pending inputs in queue order while retaining the original admission receipts', async () => {
+    const f = fixture(); await f.enqueue('first'); await f.enqueue('second');
+    const receipts = structuredClone(f.runtime.record.receipts), revision = f.runtime.record.revision;
+    await f.runtime.edit({action: 'merge', ids: ['second', 'first'], expectedRevision: revision});
+    expect(f.runtime.projection().items).toHaveLength(1);
+    expect(f.runtime.projection().items[0]).toMatchObject({id: 'first', text: 'Input first\n\nInput second', createdAt: f.createdAt});
+    expect(f.runtime.record.receipts).toEqual(receipts); expect(f.ports.send).not.toHaveBeenCalled();
+    await expect(f.runtime.edit({action: 'merge', ids: ['first', 'second'], expectedRevision: revision})).rejects.toMatchObject({code: 'ECONFLICT'});
+    expect(f.runtime.projection().items).toHaveLength(1);
+});
+
+it('persists exact terminal evidence before idleness and uses it after restart without resending the admitted head', async () => {
+    const f = fixture(); await f.enqueue('first'); await f.enqueue('second'); f.idle(); await f.runtime.pump();
+    f.ports.completion.mockReturnValue('completed'); await f.runtime.pump();
+    expect(f.runtime.record.items[0].terminal).toMatchObject({turnId: 'turn', result: 'completed', observedAt: expect.any(Number)});
+    const saved = structuredClone(f.runtime.record); f.runtime.restore(saved); f.ports.completion.mockReturnValue(undefined);
+    f.idle(); await f.runtime.pump();
+    expect(f.runtime.record.items.map(item => item.id)).toEqual(['second']);
+    expect(f.ports.send.mock.calls.map(([item]) => item.id)).toEqual(['first', 'second']);
+});
+
+it('rejects persisted terminal evidence belonging to another admitted turn', async () => {
+    const f = fixture(); await f.enqueue('first'); f.idle(); await f.runtime.pump();
+    const saved = structuredClone(f.runtime.record);
+    saved.items[0].terminal = {turnId: 'another-turn', result: 'completed', observedAt: Date.now()};
+    expect(() => f.runtime.restore(saved)).toThrow('Invalid instruction terminal evidence');
+    expect(f.ports.send).toHaveBeenCalledOnce();
+});
+
+it('resumes a rejected head with a fresh attempt and continues in order after its terminal result', async () => {
+    const f = fixture(); await f.enqueue('first'); await f.enqueue('second'); f.idle();
+    f.ports.send.mockRejectedValueOnce(Object.assign(new Error('Occupied'), {outcome: 'not-committed', remoteCode: 'HARNESS_SESSION_BUSY'}));
+    await f.runtime.pump();
+    expect(f.runtime.record).toMatchObject({paused: true, items: [{id: 'first', state: 'failed'}, {id: 'second', state: 'pending'}]});
+    const rejected = structuredClone(f.runtime.record); f.runtime.restore(rejected);
+    await f.runtime.edit({action: 'resume', expectedRevision: rejected.revision});
+    expect(f.runtime.record).toMatchObject({paused: false, items: [{id: 'first', state: 'pending'}, {id: 'second', state: 'pending'}]});
+    const attempt = f.runtime.record.items[0].attemptId;
+    expect(attempt).toMatch(/^[a-f\d-]{36}$/); expect(attempt).not.toBe('first');
+    expect(f.runtime.record.items[0]).toMatchObject({createdAt: f.createdAt, error: undefined, dispatchedAt: undefined, acceptedAt: undefined});
+    expect(f.runtime.record.receipts).toEqual(rejected.receipts); expect(f.ports.send).toHaveBeenCalledOnce();
+    await expect(f.runtime.edit({action: 'resume', expectedRevision: rejected.revision})).rejects.toMatchObject({code: 'ECONFLICT'});
+    expect(f.runtime.record.items[0].attemptId).toBe(attempt);
+    await f.runtime.pump();
+    expect(f.ports.send).toHaveBeenLastCalledWith(expect.objectContaining({id: 'first', attemptId: attempt}));
+    f.ports.completion.mockReturnValue('completed'); f.idle(); await f.runtime.pump();
+    expect(f.ports.send.mock.calls.map(([item]) => item.id)).toEqual(['first', 'first', 'second']);
+});
+
+it('blocks resume atomically when any submission outcome is unknown', async () => {
+    const f = fixture(); await f.enqueue('first'); await f.enqueue('second');
+    const saved = structuredClone(f.runtime.record); saved.paused = true;
+    saved.items[0].state = 'failed'; saved.items[0].error = 'HARNESS_SESSION_BUSY';
+    saved.items[1].state = 'uncertain'; saved.items[1].error = 'HARNESS_RECEIPT_UNKNOWN'; f.runtime.restore(saved);
+    const writes = f.ports.save.mock.calls.length;
+    await expect(f.runtime.edit({action: 'resume', expectedRevision: saved.revision})).rejects.toThrow('Resolve uncertain instructions');
+    expect(f.runtime.record).toEqual(saved); expect(f.ports.save).toHaveBeenCalledTimes(writes);
+    await f.runtime.pump(); expect(f.ports.send).not.toHaveBeenCalled();
+});
+
+it('retains the rejected head when persisting its resumed attempt fails', async () => {
+    const f = fixture(); await f.enqueue('first'); f.idle();
+    f.ports.send.mockRejectedValueOnce(Object.assign(new Error('Occupied'), {outcome: 'not-committed', remoteCode: 'HARNESS_SESSION_BUSY'}));
+    await f.runtime.pump(); const saved = structuredClone(f.runtime.record);
+    f.ports.save.mockRejectedValueOnce(new Error('Persistence unavailable'));
+    await expect(f.runtime.edit({action: 'resume', expectedRevision: saved.revision})).rejects.toThrow('Persistence unavailable');
+    expect(f.runtime.record).toEqual(saved); expect(f.ports.send).toHaveBeenCalledOnce();
+});
+
+const detachedEvidence = {state: 'detached' as const, checkedAt: 100, runtimeId: 'a'.repeat(32), processId: 10, childPid: 11, runtimeStartedAt: 50};
+it('keeps manual recovery evidence across restart without replaying or declaring a terminal result', async () => {
+    const f = fixture();
+    const original = {...detachedEvidence, state: 'running' as const, runtimeId: 'b'.repeat(32), childPid: 12};
+    f.ports.snapshot().executionRecovery = original;
+    await f.enqueue('first'); await f.enqueue('second'); f.idle(); await f.runtime.pump();
+    const revision = f.runtime.record.revision;
+    await f.runtime.recover({action: 'recover', id: 'first', expectedRevision: revision}, detachedEvidence);
+    const saved = structuredClone(f.runtime.record); f.runtime.restore(saved);
+    await f.runtime.pump();
+    expect(f.runtime.record).toMatchObject({paused: true, items: [{id: 'second'}],
+        recoveries: [{id: 'first', turnId: 'turn', outcome: 'unknown', originalExecution: original, evidence: detachedEvidence}]});
+    expect(f.runtime.record.receipts.map(row => row.id)).toEqual(['first', 'second']);
+    expect(f.ports.send).toHaveBeenCalledOnce(); expect(f.ports.completion).not.toHaveReturnedWith('cancelled');
+    await expect(f.runtime.recover({action: 'recover', id: 'first', expectedRevision: revision}, detachedEvidence)).rejects.toMatchObject({code: 'ECONFLICT'});
+});
+it('does not remove the accepted head if saving a manual recovery fails', async () => {
+    const f = fixture(); await f.enqueue('first'); f.idle(); await f.runtime.pump();
+    const saved = structuredClone(f.runtime.record);
+    f.ports.save.mockRejectedValueOnce(new Error('storage unavailable'));
+    await expect(f.runtime.recover({action: 'recover', id: 'first', expectedRevision: saved.revision}, detachedEvidence)).rejects.toThrow('storage unavailable');
+    expect(f.runtime.record).toEqual(saved); expect(f.ports.send).toHaveBeenCalledOnce();
+});
+it('rejects recovery using a bare queue edit or malformed persisted evidence', async () => {
+    const f = fixture(); await f.enqueue('first'); f.idle(); await f.runtime.pump();
+    await expect(f.runtime.edit({action: 'recover', id: 'first', expectedRevision: f.runtime.record.revision})).rejects.toThrow('fresh native execution evidence');
+    await f.runtime.recover({action: 'recover', id: 'first', expectedRevision: f.runtime.record.revision}, detachedEvidence);
+    const saved = structuredClone(f.runtime.record); saved.recoveries![0].evidence.state = 'running';
+    expect(() => f.runtime.restore(saved)).toThrow('Invalid instruction recovery record');
+});
