@@ -1,6 +1,6 @@
 {
   "name": "@nestos/cells-driver",
-  "version": "0.4.3",
+  "version": "0.5.1",
   "description": "Platform-independent driver for cells, the intelligent nodes integrating information and agents into NestOS.",
   "type": "module",
   "main": "./src/index.ts",
@@ -18,8 +18,8 @@
     "prepublishOnly": "pnpm build"
   },
   "dependencies": {
-    "@nestos/vfs-core": "5.3.4",
-    "@nestos/vfs-sync": "0.1.1",
+    "@nestos/vfs-core": "^0.5.1",
+    "@nestos/vfs-sync": "^0.5.1",
     "@modelcontextprotocol/client": "2.0.0"
   },
   "devDependencies": {
