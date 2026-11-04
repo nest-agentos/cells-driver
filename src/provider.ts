@@ -1,6 +1,6 @@
 import { validateAuthorization, type RemoteAuthorization } from './authorization';
 import { createHttpSourceProvider, type HttpSourceProvider, type RemoteConnection } from './files/index';
-import { FSError, createFileSystemSource, FileStorageAdapter, type FileSystemSourceOwner } from '@itookit/vfs-core';
+import { FSError, createFileSystemSource, FileStorageAdapter, type FileSystemSourceOwner } from '@nestos/vfs-core';
 import { HttpFSBackend } from './files/index';
 import { HttpSyncClient } from './sync/client';
 import { MCPHarnessClient } from './harness/client';
@@ -17,9 +17,9 @@ type Connection = Omit<RemoteConnection, 'alias'>;
 export interface CellsDescriptor { authorization?: RemoteAuthorization; version: 1; httpEndpoint: string; serverId: string | null; fileProtocol: 'fs-agent-http-v1'; harness: boolean; projects?: boolean; sync?: boolean; projectProtocol?: string; directorySync?: boolean; directorySyncVersion?: number; fileSearch?: boolean; directoryEvents?: boolean; events?: {version:1;transport:'sse';endpoint:'/v1/events'}; }
 export interface CellsDriver extends HttpSourceProvider {
     observeHarness(client: HarnessClient, writable?: boolean, options?: {watchFiles?: boolean}): HarnessStatusPort;
-    open(connection: RemoteConnection & {serverProjectId?: string; serverProjectRevision?: number; access?: 'ro' | 'rw'}, options?: import('@itookit/vfs-core').OperationOptions): ReturnType<HttpSourceProvider['open']>;
+    open(connection: RemoteConnection & {serverProjectId?: string; serverProjectRevision?: number; access?: 'ro' | 'rw'}, options?: import('@nestos/vfs-core').OperationOptions): ReturnType<HttpSourceProvider['open']>;
     resolveCredential(reference: string): Promise<string>;
-    discover(connection: Connection, options?: import('@itookit/vfs-core').OperationOptions): Promise<CellsDescriptor>;
+    discover(connection: Connection, options?: import('@nestos/vfs-core').OperationOptions): Promise<CellsDescriptor>;
     conversation(client: HarnessClient, profile: HarnessProfile, workspaceId: string, sessionId?: string, writable?: boolean, journal?: HarnessConversationJournal): HarnessConversationPort;
     harness(connection: Connection): HarnessClient;
     projects(connection: Connection): ProjectClient;
@@ -53,7 +53,7 @@ export function createCellsDriver(resolveCredential?: (reference: string) => str
         resolveCredential: credential,
         observeHarness: (client: HarnessClient, writable = true, options?: {watchFiles?: boolean}) => new HarnessStatusObserver(client, Date.now, writable, options?.watchFiles ?? true),
         conversation: (client: HarnessClient, profile: HarnessProfile, workspaceId: string, sessionId?: string, writable?: boolean, journal?: HarnessConversationJournal) => new HarnessConversation(client, profile, workspaceId, sessionId, writable, journal),
-        async discover(connection: Connection, options?: import('@itookit/vfs-core').OperationOptions): Promise<CellsDescriptor> {
+        async discover(connection: Connection, options?: import('@nestos/vfs-core').OperationOptions): Promise<CellsDescriptor> {
             const rpc = createHarnessRpc(connection.endpoint, authenticatedFetch(connection, credential, fetch), true);
             try {
                 const value = await discoverCapabilities(rpc,options);
@@ -80,7 +80,7 @@ export function createCellsDriver(resolveCredential?: (reference: string) => str
             client.close = async () => { clients.delete(client); await close(); };
             clients.add(client); return client;
         },
-        async open(connection: RemoteConnection & {serverProjectId?: string; serverProjectRevision?: number; access?: 'ro' | 'rw'}, options?: import('@itookit/vfs-core').OperationOptions) {
+        async open(connection: RemoteConnection & {serverProjectId?: string; serverProjectRevision?: number; access?: 'ro' | 'rw'}, options?: import('@nestos/vfs-core').OperationOptions) {
             if (!connection.serverProjectId) return openFiles(connection,options);
             const scopedFetch: typeof globalThis.fetch = (input,init) => {
                 const headers=new Headers(init?.headers); headers.set('x-fsagent-project',connection.serverProjectId!);
@@ -127,7 +127,7 @@ export function createCellsDriver(resolveCredential?: (reference: string) => str
         },
     });
 }
-async function discoverCapabilities(rpc: HarnessRpc,options?: import('@itookit/vfs-core').OperationOptions): Promise<CellsDescriptor> {
+async function discoverCapabilities(rpc: HarnessRpc,options?: import('@nestos/vfs-core').OperationOptions): Promise<CellsDescriptor> {
     const metadata = await rpc.metadata?.(options);
     if (Object.hasOwn(metadata ?? {}, 'itookit/cells')) return metadata!['itookit/cells'] as CellsDescriptor;
     return await rpc.call('cells_capabilities', {}, options) as CellsDescriptor;

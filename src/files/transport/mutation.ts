@@ -1,4 +1,4 @@
-import { FSError, type FSErrorCode, type OperationOutcome } from '@itookit/vfs-core';
+import { FSError, type FSErrorCode, type OperationOutcome } from '@nestos/vfs-core';
 import { boundedBody } from './body';
 import { remoteCode, statusCode } from './errors';
 

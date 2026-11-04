@@ -1,4 +1,4 @@
-import { FSError, type FileStat } from '@itookit/vfs-core';
+import { FSError, type FileStat } from '@nestos/vfs-core';
 
 export function validateStat(value: unknown): asserts value is FileStat | null {
     if (value === null) return;

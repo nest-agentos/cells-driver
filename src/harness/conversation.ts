@@ -9,7 +9,7 @@ import {HarnessInstructionRuntime, type HarnessInstruction, type HarnessQueueEdi
 import type {HarnessSlashCommand, HarnessModelCatalog, HarnessModelSelection} from './contracts';
 import {validateCommands, validateCommandResult, validateCommandReceipts} from './commands';
 import { requestId as createRequestId } from '../files/request-id';
-import { FSError, type OperationOptions } from '@itookit/vfs-core';
+import { FSError, type OperationOptions } from '@nestos/vfs-core';
 import type { HarnessClient, HarnessProfile, HarnessSession, HarnessEvents, HarnessAttachment } from './contracts';
 import { conversationBranches } from './branches';
 import { validateAttachments, validateDeletedSessionIds, validateSession } from './validation';

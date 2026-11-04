@@ -1,4 +1,4 @@
-import {FSError} from '@itookit/vfs-core';
+import {FSError} from '@nestos/vfs-core';
 import type {HarnessModelCatalog, HarnessModelSelection} from './contracts';
 
 function string(value: unknown, limit = 1024): value is string {return typeof value === 'string' && value.length > 0 && value.length <= limit && !value.includes('\0');}

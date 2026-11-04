@@ -1,4 +1,4 @@
-import { FSError } from '@itookit/vfs-core';
+import { FSError } from '@nestos/vfs-core';
 
 /** Input/cache buckets are disjoint; reasoning is a subset of output. */
 export interface HarnessTokens {

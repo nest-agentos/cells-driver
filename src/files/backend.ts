@@ -1,7 +1,7 @@
 import { readExports, supportsMutations } from './protocol/exports';
 export type { RemoteExport } from './protocol/exports';
 import { checkOperation, FileStorageAdapter, FSError, createFileSystemSource,
-    type FileStorageBackend, type FileReader, type FileMutations, type OperationOptions, type FilePage, type FileListOptions, type FileReadOptions } from '@itookit/vfs-core';
+    type FileStorageBackend, type FileReader, type FileMutations, type OperationOptions, type FilePage, type FileListOptions, type FileReadOptions } from '@nestos/vfs-core';
 import { HttpTransport, type HttpConnectionOptions } from './transport';
 import { StatBatch } from './stat-batch';
 import { validateStat } from './protocol/stat';
@@ -47,7 +47,7 @@ export class HttpFSBackend implements FileStorageBackend {
             replace: async (path, data, condition, options) => {
                 const headers = new Headers({ 'Content-Type': 'application/octet-stream' });
                 headers.set(condition.kind === 'create-only' ? 'If-None-Match' : 'If-Match', condition.kind === 'create-only' ? '*' : condition.revision);
-                const result = await this.http.mutate<import('@itookit/vfs-core').FileStat>(`${this.base}/content?${new URLSearchParams({ path: validPath(path) })}`,
+                const result = await this.http.mutate<import('@nestos/vfs-core').FileStat>(`${this.base}/content?${new URLSearchParams({ path: validPath(path) })}`,
                     { method: 'PUT', headers, body: data.slice().buffer }, `${this.base}/operations`, options);
                 validateStat(result);
                 if (!result) throw new FSError('EIO', 'Missing replacement attributes');

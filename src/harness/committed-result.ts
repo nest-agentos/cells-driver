@@ -1,4 +1,4 @@
-import {FSError} from '@itookit/vfs-core';
+import {FSError} from '@nestos/vfs-core';
 import type {HarnessReceipt} from './contracts';
 const receipts = new WeakMap<object, HarnessReceipt>();
 

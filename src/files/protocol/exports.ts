@@ -1,4 +1,4 @@
-import { FSError, type OperationOptions } from '@itookit/vfs-core';
+import { FSError, type OperationOptions } from '@nestos/vfs-core';
 import type { HttpTransport } from '../transport';
 
 export interface RemoteExport { alias: string; access?: 'ro' | 'rw'; nameSemantics?: string; strongRevision?: boolean; metadata?: boolean; }

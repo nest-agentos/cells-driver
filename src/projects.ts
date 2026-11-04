@@ -1,6 +1,6 @@
 import {validateAuthorization, validateProjectCapabilities, type RemoteAuthorization, type RemoteProjectCapabilities} from './authorization';
 import { MCPDirectorySyncClient, type DirectorySyncClient } from './directory-sync';
-import { FSError, type OperationOptions } from '@itookit/vfs-core';
+import { FSError, type OperationOptions } from '@nestos/vfs-core';
 import { MCPHarnessClient } from './harness/client';
 import { HarnessRpc } from './harness/rpc';
 import type { HarnessClient } from './harness/contracts';

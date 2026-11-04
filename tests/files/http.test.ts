@@ -22,7 +22,7 @@ describe('HTTP driver', () => {
             return new Response('old content', { headers: { etag: revision } });
         };
         const owner = await openHttpFileSource({ ...config, fetch });
-        const { createFile } = await import('@itookit/vfs-core');
+        const { createFile } = await import('@nestos/vfs-core');
         const file = createFile(owner.fs, '/note');
         await file.read(); revision = '"epoch:2"';
         await expect(file.write('new')).rejects.toMatchObject({ code: 'ECONFLICT', outcome: 'not-committed' });
@@ -194,7 +194,7 @@ it('rejects missing list attributes instead of exposing invalid directory entrie
 });
 
 it('keeps metadata on the remote source across different mount depths, with normal readonly guards', async () => {
-    const {createFileSystemView} = await import('@itookit/vfs-core');
+    const {createFileSystemView} = await import('@nestos/vfs-core');
     const stored = new Map<string, Record<string, unknown>>(), mutations: string[] = [];
     const fetch: typeof globalThis.fetch = async (input, init) => {
         const url = new URL(String(input));

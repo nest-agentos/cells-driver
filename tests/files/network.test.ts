@@ -6,7 +6,7 @@ import { mkdtemp, writeFile, rm, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { once } from 'node:events';
-import { createFile } from '@itookit/vfs-core';
+import { createFile } from '@nestos/vfs-core';
 import { HttpProcessSession, discoverServer, openHttpFileSource } from '../../src/files';
 
 // Hosts can supply the independently maintained server for protocol verification.

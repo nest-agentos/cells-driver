@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import { createFile } from '@itookit/vfs-core';
+import { createFile } from '@nestos/vfs-core';
 import { createCellsDriver } from '../src/provider';
 
 it('opens unscoped exports through the injected transport and shares updated credentials', async () => {

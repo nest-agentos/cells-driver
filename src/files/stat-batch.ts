@@ -1,5 +1,5 @@
 import { validateStat } from './protocol/stat';
-import { checkOperation, FSOperationCancelledError, FSError, operationScope, type FileStat, type OperationOptions } from '@itookit/vfs-core';
+import { checkOperation, FSOperationCancelledError, FSError, operationScope, type FileStat, type OperationOptions } from '@nestos/vfs-core';
 import type { HttpTransport } from './transport';
 
 interface Pending {
@@ -51,7 +51,7 @@ export class StatBatch {
             items.forEach(item => {
                 if (!item.active) return;
                 const value = result.results[positions.get(item.path)!];
-                if (value.error) item.reject(new FSError((['EACCES', 'EINVAL', 'ENOTDIR', 'ECAPABILITY'].includes(value.error) ? value.error : 'EIO') as import('@itookit/vfs-core').FSErrorCode, 'Remote stat failed'));
+                if (value.error) item.reject(new FSError((['EACCES', 'EINVAL', 'ENOTDIR', 'ECAPABILITY'].includes(value.error) ? value.error : 'EIO') as import('@nestos/vfs-core').FSErrorCode, 'Remote stat failed'));
                 else { validateStat(value.stat); item.resolve(value.stat ?? null); }
             });
         } catch (error) { for (const item of items) if (item.active) item.reject(error); }

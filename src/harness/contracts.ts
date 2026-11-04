@@ -1,4 +1,4 @@
-import type { OperationOptions } from '@itookit/vfs-core';
+import type { OperationOptions } from '@nestos/vfs-core';
 import type { HarnessUsage } from './usage';
 
 export interface HarnessProfile {

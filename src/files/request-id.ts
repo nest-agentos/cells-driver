@@ -1,4 +1,4 @@
-import { FSError } from '@itookit/vfs-core';
+import { FSError } from '@nestos/vfs-core';
 
 /** WebCrypto randomUUID is unavailable on plain-HTTP origins; secure bytes still work. */
 export function requestId(): string {

@@ -1,4 +1,4 @@
-import { FSError } from '@itookit/vfs-core';
+import { FSError } from '@nestos/vfs-core';
 
 export async function boundedBody(response: Response, limit: number): Promise<Uint8Array> {
     const declared = response.headers.get('content-length');

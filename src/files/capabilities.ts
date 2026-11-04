@@ -1,6 +1,6 @@
 import { validateAuthorization, type RemoteAuthorization } from '../authorization';
 import { readExports } from './protocol/exports';
-import { FSError, type OperationOptions } from '@itookit/vfs-core';
+import { FSError, type OperationOptions } from '@nestos/vfs-core';
 import { HttpTransport, HttpResponseError } from './transport';
 
 /** Discovery describes support, never a grant to execute in a directory. */

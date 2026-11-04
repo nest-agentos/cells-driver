@@ -8,7 +8,7 @@ export { HttpMutationError } from './transport/mutation';
 import { retryDelay } from './transport/retry';
 export { HttpResponseError } from './transport/errors';
 
-import { checkOperation, FSError, FSOperationCancelledError, operationScope, type OperationOptions } from '@itookit/vfs-core';
+import { checkOperation, FSError, FSOperationCancelledError, operationScope, type OperationOptions } from '@nestos/vfs-core';
 import { NodeEventHub, type RemoteEventListener } from '../events';
 
 export interface HttpConnectionOptions {

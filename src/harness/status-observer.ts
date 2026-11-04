@@ -7,7 +7,7 @@ export interface HarnessStatusRow { profileId: string; sessionId: string; observ
 export interface HarnessStatusPort {
     subscribe(listener: () => void): () => void;
     fileVersion?(): string | undefined;
-    refresh(options?: import('@itookit/vfs-core').OperationOptions): Promise<HarnessStatusRow[]>;
+    refresh(options?: import('@nestos/vfs-core').OperationOptions): Promise<HarnessStatusRow[]>;
     close(): Promise<void>;
 }
 interface ProfileState {
@@ -60,12 +60,12 @@ export class HarnessStatusObserver implements HarnessStatusPort {
     private pending?: Promise<HarnessStatusRow[]>;
     constructor(private readonly client: HarnessClient, private readonly now = Date.now, private readonly writable = true,
         private readonly watchFiles = true) {}
-    refresh(options?: import('@itookit/vfs-core').OperationOptions): Promise<HarnessStatusRow[]> {
+    refresh(options?: import('@nestos/vfs-core').OperationOptions): Promise<HarnessStatusRow[]> {
         if (this.pending) return this.pending;
         const work = this.update(options).finally(() => { this.pending = undefined; });
         this.pending = work; return work;
     }
-    private async update(options?: import('@itookit/vfs-core').OperationOptions): Promise<HarnessStatusRow[]> {
+    private async update(options?: import('@nestos/vfs-core').OperationOptions): Promise<HarnessStatusRow[]> {
         if (this.watchFiles) await this.watchDirectory(options);
         try {
             if (!this.profiles.size) for (const profile of (await this.client.profiles(options)).profiles) {
@@ -84,7 +84,7 @@ export class HarnessStatusObserver implements HarnessStatusPort {
             ({profileId: state.profile.id, sessionId, observation, title: state.sessions.get(sessionId)?.title, archived: state.sessions.get(sessionId)?.archived, fileVersion: state.fileVersion,
                 ...(state.truncated ? {truncated: true} : {})})));
     }
-    private async watchDirectory(options?: import('@itookit/vfs-core').OperationOptions): Promise<void> {
+    private async watchDirectory(options?: import('@nestos/vfs-core').OperationOptions): Promise<void> {
         try {
             this.directoryVersion = await this.client.directorySnapshot?.();
             this.errors.clear('directory');
@@ -93,7 +93,7 @@ export class HarnessStatusObserver implements HarnessStatusPort {
             this.errors.record('directory', error);
         }
     }
-    private async updateProfile(state: ProfileState, options?: import('@itookit/vfs-core').OperationOptions): Promise<void> {
+    private async updateProfile(state: ProfileState, options?: import('@nestos/vfs-core').OperationOptions): Promise<void> {
         let stage = 'events';
         try {
             const page = await this.client.eventSnapshot(state.profile.id, state.cursor, {...options, toolDetail: 'summary'});
@@ -113,7 +113,7 @@ export class HarnessStatusObserver implements HarnessStatusPort {
                 stale: true, canInterrupt: false, canRespond: false});
         }
     }
-    private async list(state: ProfileState, options?: import('@itookit/vfs-core').OperationOptions) {
+    private async list(state: ProfileState, options?: import('@nestos/vfs-core').OperationOptions) {
         const listed = await this.readList(state.profile.id, options);
         const sessions = listed.complete ? new Map<string, HarnessSession>() : new Map(state.sessions);
         const observations = listed.complete ? new Map<string, HarnessObservation>() : new Map([...state.observations].map(([id, prior]) =>
@@ -131,7 +131,7 @@ export class HarnessStatusObserver implements HarnessStatusPort {
         for (const id of state.nativeDisconnected) if (!sessions.has(id)) state.nativeDisconnected.delete(id);
         state.listedAt = this.now();
     }
-    private async readList(profileId: string, options?: import('@itookit/vfs-core').OperationOptions) {
+    private async readList(profileId: string, options?: import('@nestos/vfs-core').OperationOptions) {
         const seen = new Set<string>(), sessions = new Map<string, HarnessSession>();
         let cursor: string | undefined;
         for (let count = 0; count < 8; count++) {

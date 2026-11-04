@@ -1,4 +1,4 @@
-import { FSError } from '@itookit/vfs-core';
+import { FSError } from '@nestos/vfs-core';
 export interface FileSearchMatch { path: string; line?: number; summary: string }
 export interface FileSearchResult { matches: FileSearchMatch[]; truncated: boolean; nextCursor: null }
 export interface FileSearchQuery { query: string; mode: 'name' | 'path' | 'content'; directory?: string }

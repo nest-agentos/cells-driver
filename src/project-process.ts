@@ -1,5 +1,5 @@
 import { HttpProcessSession, HttpTransport, type HttpConnectionOptions, type RemoteProcessSpec } from './files/index';
-import { FSError, type OperationOptions } from '@itookit/vfs-core';
+import { FSError, type OperationOptions } from '@nestos/vfs-core';
 import type { ProjectClient, RemoteProject } from './projects';
 
 /** Reuse process cancellation and reaping, replacing only project admission. */

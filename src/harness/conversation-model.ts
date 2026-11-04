@@ -1,5 +1,5 @@
 import type { HarnessHistory } from './contracts';
-import { FSError } from '@itookit/vfs-core';
+import { FSError } from '@nestos/vfs-core';
 import { toolSummary, type ToolOperation } from './tool-summary';
 export interface HarnessMessage {
     id: string; role: 'user' | 'assistant' | 'tool' | 'system'; text: string; status?: string;

@@ -1,4 +1,4 @@
-import {sha256} from '@itookit/vfs-sync';
+import {sha256} from '@nestos/vfs-sync';
 import type {HarnessHistory, HarnessTurnSubmissionEvidence} from './contracts';
 import type {HarnessInstruction} from './instruction-queue';
 interface TerminalTurn {id: string; status: 'completed' | 'failed' | 'interrupted' | 'cancelled'; submissionEvidence: HarnessTurnSubmissionEvidence}

@@ -1,4 +1,4 @@
-import { FSError } from '@itookit/vfs-core';
+import { FSError } from '@nestos/vfs-core';
 
 export interface RemoteAuthorization { principalId: string; anonymous: boolean; revision: string }
 export interface RemoteProjectCapabilities {

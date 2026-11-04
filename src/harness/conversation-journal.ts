@@ -1,5 +1,5 @@
 import type { HarnessAttachment, HarnessCommandRecord } from './contracts';
-import {FSError} from '@itookit/vfs-core';
+import {FSError} from '@nestos/vfs-core';
 export interface HarnessRecovery {
     controls?: import('./control-ledger').HarnessControlRecord[];
     lastFork?: import('./forks').HarnessForkReceipt;

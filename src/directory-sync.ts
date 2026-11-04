@@ -1,4 +1,4 @@
-import { FSError, type OperationOptions } from '@itookit/vfs-core';
+import { FSError, type OperationOptions } from '@nestos/vfs-core';
 import type { HarnessRpc } from './harness/rpc';
 export interface DirectoryContent { kind: 'file' | 'directory'; hash: string | null; executable: boolean; identity: string | null }
 export type DirectorySyncDirection = 'both' | 'upload' | 'download';

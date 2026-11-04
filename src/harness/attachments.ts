@@ -1,4 +1,4 @@
-import {FSError} from '@itookit/vfs-core';
+import {FSError} from '@nestos/vfs-core';
 import type {HarnessAttachment} from './contracts';
 
 export function validateTurnInput(prompt: unknown, attachments: unknown): HarnessAttachment[] {

@@ -1,4 +1,4 @@
-import { FSError, type FSErrorCode } from '@itookit/vfs-core';
+import { FSError, type FSErrorCode } from '@nestos/vfs-core';
 import { boundedBody } from './body';
 
 export class HttpResponseError extends FSError {

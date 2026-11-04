@@ -1,5 +1,5 @@
-import {sha256} from '@itookit/vfs-sync';
-import { FSError, type OperationOptions, type RecordValue } from '@itookit/vfs-core';
+import {sha256} from '@nestos/vfs-sync';
+import { FSError, type OperationOptions, type RecordValue } from '@nestos/vfs-core';
 import { HttpTransport, type HttpConnectionOptions } from '../transport';
 
 export interface HttpSeqSnapshot { revision: string | null; entries: Array<{ key: string; value: RecordValue }> }

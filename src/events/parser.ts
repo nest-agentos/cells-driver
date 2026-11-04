@@ -1,4 +1,4 @@
-import { FSError } from '@itookit/vfs-core';
+import { FSError } from '@nestos/vfs-core';
 
 /** Read bounded UTF-8 SSE frames, including CRLF and chunks split inside a code point. */
 export async function readEventStream(body: ReadableStream<Uint8Array>, controller: AbortController,

@@ -1,5 +1,5 @@
 {
-  "name": "@itookit/cells-driver",
+  "name": "@nestos/cells-driver",
   "version": "0.4.3",
   "description": "Platform-independent driver for cells, the intelligent nodes integrating information and agents into NestOS.",
   "type": "module",
@@ -18,8 +18,8 @@
     "prepublishOnly": "pnpm build"
   },
   "dependencies": {
-    "@itookit/vfs-core": "5.3.4",
-    "@itookit/vfs-sync": "0.1.1",
+    "@nestos/vfs-core": "5.3.4",
+    "@nestos/vfs-sync": "0.1.1",
     "@modelcontextprotocol/client": "2.0.0"
   },
   "devDependencies": {

@@ -1,4 +1,4 @@
-import { FSError, checkOperation, operationScope, pathUtils, type OperationOptions } from '@itookit/vfs-core';
+import { FSError, checkOperation, operationScope, pathUtils, type OperationOptions } from '@nestos/vfs-core';
 import type { HttpTransport } from './transport';
 import { ProcessClient } from './process/client';
 import { requestId } from './request-id';

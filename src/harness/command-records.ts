@@ -1,6 +1,6 @@
 import type {HarnessCommandRecord, HarnessCommandOutput, HarnessCommandResult} from './contracts';
 import type {HarnessMessage} from './conversation-model';
-import {FSError} from '@itookit/vfs-core';
+import {FSError} from '@nestos/vfs-core';
 
 export function commandResultIssue(records: readonly HarnessCommandRecord[]) {
     const row = records.find(row => row.resultError && row.operationId);

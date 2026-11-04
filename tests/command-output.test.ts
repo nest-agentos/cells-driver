@@ -1,5 +1,5 @@
 import {expect, it, vi} from 'vitest';
-import {sha256} from '@itookit/vfs-sync';
+import {sha256} from '@nestos/vfs-sync';
 import {MCPHarnessClient} from '../src/harness/client';
 import {HarnessConversation} from '../src/harness/conversation';
 import {validateCommandResult} from '../src/harness/commands';

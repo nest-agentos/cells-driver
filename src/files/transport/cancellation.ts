@@ -1,4 +1,4 @@
-import { checkOperation, FSOperationCancelledError, type OperationOptions } from '@itookit/vfs-core';
+import { checkOperation, FSOperationCancelledError, type OperationOptions } from '@nestos/vfs-core';
 
 /** The scope aborts with a cancellation reason; anything else aborted the signal. */
 export function cancellationReason(options: OperationOptions): FSOperationCancelledError | undefined {

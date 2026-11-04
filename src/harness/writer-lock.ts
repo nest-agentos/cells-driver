@@ -1,4 +1,4 @@
-import {FSError} from '@itookit/vfs-core';
+import {FSError} from '@nestos/vfs-core';
 import type {HarnessWriterLock} from './contracts';
 
 /** Keep only safe diagnostic fields; an absent observation never means unlocked. */

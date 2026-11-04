@@ -1,4 +1,4 @@
-import type { OperationOptions } from '@itookit/vfs-core';
+import type { OperationOptions } from '@nestos/vfs-core';
 import type { HttpTransport } from '../transport';
 import type { ProcessStatus, RemoteProcessSpec } from './contracts';
 import { validateStatus } from './protocol';

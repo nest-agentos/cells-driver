@@ -1,4 +1,4 @@
-import {FSError} from '@itookit/vfs-core';
+import {FSError} from '@nestos/vfs-core';
 import type {HarnessExecutionRecovery, HarnessSession} from './contracts';
 
 export function validateExecutionRecovery(value: unknown): HarnessExecutionRecovery | undefined {

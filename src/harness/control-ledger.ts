@@ -1,4 +1,4 @@
-import {FSError} from '@itookit/vfs-core';
+import {FSError} from '@nestos/vfs-core';
 import {requestId} from '../files/request-id';
 import type {HarnessReceipt} from './contracts';
 

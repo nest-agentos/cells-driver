@@ -1,4 +1,4 @@
-import type { OperationOptions } from '@itookit/vfs-core';
+import type { OperationOptions } from '@nestos/vfs-core';
 
 /** Log request identity and failure evidence, never request headers or content. */
 export function reportHttpFailure(endpoint: URL, route: string, method: string, error: unknown,

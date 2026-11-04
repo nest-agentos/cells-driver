@@ -1,4 +1,4 @@
-import { FSError, type OperationOptions } from '@itookit/vfs-core';
+import { FSError, type OperationOptions } from '@nestos/vfs-core';
 import type { HarnessClient, HarnessSession } from './contracts';
 /** Native parent links define a branch family; project-scoped listing enforces visibility. */
 export async function conversationBranches(client: HarnessClient, profileId: string, current: HarnessSession, options: OperationOptions): Promise<HarnessSession[]> {

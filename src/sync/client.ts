@@ -1,4 +1,4 @@
-import { assertSync, decimal, sha256, SyncError, validId, type Command, type FileRemote, type Head, type Receipt, type CatalogPage, type ChangePage } from '@itookit/vfs-sync';
+import { assertSync, decimal, sha256, SyncError, validId, type Command, type FileRemote, type Head, type Receipt, type CatalogPage, type ChangePage } from '@nestos/vfs-sync';
 import { HttpTransport, type HttpConnectionOptions } from '../files/index';
 
 export interface SyncCapabilities {

@@ -1,5 +1,5 @@
 import { FSError, FileStorageAdapter, createFileSystemSource,
-    type FileSystemSourceOwner, type OperationOptions } from '@itookit/vfs-core';
+    type FileSystemSourceOwner, type OperationOptions } from '@nestos/vfs-core';
 import { HttpFSBackend } from './backend';
 import { discoverServer, type RemoteServerCapabilities } from './capabilities';
 import { HttpProcessSession, type RemoteProcessSpec } from './process';

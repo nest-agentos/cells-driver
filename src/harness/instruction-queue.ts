@@ -1,6 +1,6 @@
 import {validateExecutionRecovery} from './execution-recovery';
-import {FSError} from '@itookit/vfs-core';
-import {sha256} from '@itookit/vfs-sync';
+import {FSError} from '@nestos/vfs-core';
+import {sha256} from '@nestos/vfs-sync';
 import {readStoredAttachments, validateAttachments, prepareTurnInput} from './attachments';
 import {validateModelSelection} from './models';
 import {requestId} from '../files/request-id';

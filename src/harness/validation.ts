@@ -1,6 +1,6 @@
 import {validateExecutionRecovery} from './execution-recovery';
 import {terminalTurn} from './history-completion';
-import { FSError } from '@itookit/vfs-core';
+import { FSError } from '@nestos/vfs-core';
 import {validateMetrics} from './metrics';
 import { validateUsage } from './usage';
 import {validateWriterLock} from './writer-lock';

@@ -1,4 +1,4 @@
-import {FSError} from '@itookit/vfs-core';
+import {FSError} from '@nestos/vfs-core';
 import type {HarnessSlashCommand, HarnessCommandResult, HarnessCommandCatalog, HarnessCommandRecord} from './contracts';
 import {COMMAND_ID_LIMIT, previewOutput, validateCommandOutputRef} from './command-output';
 

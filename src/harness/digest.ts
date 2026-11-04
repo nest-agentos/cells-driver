@@ -1,4 +1,4 @@
-import {FSError} from '@itookit/vfs-core';
+import {FSError} from '@nestos/vfs-core';
 import {validateSession} from './validation';
 import type {HarnessSession} from './contracts';
 

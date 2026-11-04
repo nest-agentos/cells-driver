@@ -1,5 +1,5 @@
 import { Client, StreamableHTTPClientTransport, isCallToolResult } from '@modelcontextprotocol/client';
-import { FSError, checkOperation, operationScope, type OperationOptions } from '@itookit/vfs-core';
+import { FSError, checkOperation, operationScope, type OperationOptions } from '@nestos/vfs-core';
 import { NodeEventHub, requireEventCapability, type RemoteEventListener } from '../events';
 
 export interface HarnessRpc {

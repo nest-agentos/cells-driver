@@ -1,4 +1,4 @@
-import { FSError, checkOperation, operationScope, type OperationOptions } from '@itookit/vfs-core';
+import { FSError, checkOperation, operationScope, type OperationOptions } from '@nestos/vfs-core';
 import type { HarnessEvents } from './contracts';
 import type { HarnessRpc } from './rpc';
 import { validateEvents } from './validation';

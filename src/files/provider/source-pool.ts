@@ -1,4 +1,4 @@
-import { checkOperation, FSError, operationScope, type FileSystemSourceOwner, type OperationOptions } from '@itookit/vfs-core';
+import { checkOperation, FSError, operationScope, type FileSystemSourceOwner, type OperationOptions } from '@nestos/vfs-core';
 
 interface Entry {
     source: Promise<FileSystemSourceOwner>;

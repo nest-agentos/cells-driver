@@ -1,5 +1,5 @@
-import {FSError} from '@itookit/vfs-core';
-import {sha256} from '@itookit/vfs-sync';
+import {FSError} from '@nestos/vfs-core';
+import {sha256} from '@nestos/vfs-sync';
 import type {HarnessCommandOutputRef, HarnessCommandOutputPage, HarnessCommandOutputOptions, HarnessCommandOutputLoadOptions} from './contracts';
 
 const fields = ['version', 'epoch', 'requestId', 'bytes', 'sha256', 'mimeType'];
