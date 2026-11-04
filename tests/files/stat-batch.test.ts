@@ -51,3 +51,11 @@ it('validates unique-path response length and keeps remote failure distinct from
     expect(malformed).toEqual([expect.objectContaining({status: 'rejected', reason: expect.objectContaining({code: 'EIO'})}),
         expect.objectContaining({status: 'rejected', reason: expect.objectContaining({code: 'EIO'})})]);
 });
+
+it('requests only entry facts for a batch of path type checks', async () => {
+    const json = vi.fn(async (_route: string, init: RequestInit) => ({results: JSON.parse(String(init.body)).paths.map(() => ({stat}))}));
+    const reader = new StatBatch({json, defaultTimeoutMs: 30_000} as unknown as HttpTransport, 'stat', 'entry');
+    await Promise.all([reader.get('a'), reader.get('a/b')]);
+    expect(json).toHaveBeenCalledOnce();
+    expect(JSON.parse(String(json.mock.calls[0][1].body))).toEqual({paths: ['a', 'a/b'], fields: 'entry'});
+});

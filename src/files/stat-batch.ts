@@ -11,7 +11,7 @@ interface Pending {
 
 export class StatBatch {
     private pending: Pending[] = [];
-    constructor(private readonly http: HttpTransport, private readonly route: string) {}
+    constructor(private readonly http: HttpTransport, private readonly route: string, private readonly fields: 'entry' | 'stat' = 'stat') {}
     get(path: string, options?: OperationOptions): Promise<FileStat | null> {
         const scope = operationScope(options);
         try { checkOperation(scope.options); } catch (e) { scope.dispose(); return Promise.reject(e); }
@@ -45,7 +45,7 @@ export class StatBatch {
             const budgets = items.filter(item => item.active).map(item => item.remaining() ?? this.http.defaultTimeoutMs);
             const options = { signal: controller.signal, timeoutMs: Math.max(...budgets) };
             const result = await this.http.json<{ results: Array<{ stat?: FileStat | null; error?: string }> }>(this.route,
-                { method: 'POST', body: JSON.stringify({ paths }) }, options);
+                { method: 'POST', body: JSON.stringify({ paths, ...(this.fields === 'entry' ? {fields: this.fields} : {}) }) }, options);
             if (!result || !Array.isArray(result.results) || result.results.length !== paths.length
                 || result.results.some(value => !value || typeof value !== 'object')) throw new FSError('EIO', 'Invalid stat batch response');
             items.forEach(item => {

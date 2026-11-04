@@ -58,3 +58,5 @@ steer 的接纳回执不生成本地 steered: 用户消息；原生事件及历�
 已有 thread/tokenUsage/updated 事件直接更新当前会话 contextWindow，使用 last 而非累计 total，不新增指标 RPC 或轮询。缺失占用保留 null，缺失容量撤下旧容量；非法事件只记录安全分类并保留已验证值，不影响发送。并发 refreshMetrics 返回时按本地 contextRevision 保留在途收到的新上下文，仍接收独立额度/费用字段。
 
 executionRecovery 以节点实时原生状态与写锁为基准；超过60秒只展示人工恢复入口，不自动终结。recover 必须重新读历史/inspect，明确 detached 后按队列 CAS 将旧轮保存为 unknown 并暂停后续项；原运行时证据与恢复证据进入原 journal，不能伪造 terminal 或重放。无能力、未决提交/控制、占用与未知锁均拒绝。
+
+目录基础事实必须透传既有 `FileListOptions.fields: entry/stat`，`FileStorageAdapter.listEntries` 不得退回完整节点读取。路径类型检查使用独立的 entry 投影微批次（同一 stat 端点与契约），不得读取 revision、source identity 或扩展 metadata。对应 Cells 端须同时支持该字段投影；不保留协议探测失败后的完整读取兼容分支。

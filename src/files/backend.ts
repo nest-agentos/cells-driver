@@ -18,8 +18,9 @@ export class HttpFSBackend implements FileStorageBackend {
         if (!/^[a-zA-Z0-9_-]+$/.test(options.alias)) throw new FSError('EINVAL', 'Invalid export alias');
         this.http = new HttpTransport(options); this.base = `v1/fs/${options.alias}`;
         const batch = new StatBatch(this.http, `${this.base}/stat`);
+        const types = new StatBatch(this.http, `${this.base}/stat`, 'entry');
         this.files = { stat: (path, opts) => batch.get(validPath(path), opts),
-            statType: (path, opts) => batch.get(validPath(path), opts),
+            statType: (path, opts) => types.get(validPath(path), opts),
             list: (path, opts) => this.list(path, opts), read: (path, opts) => this.read(path, opts) };
     }
     async init(options?: OperationOptions): Promise<void> {
@@ -61,6 +62,7 @@ export class HttpFSBackend implements FileStorageBackend {
     private async list(path: string, options?: FileListOptions): Promise<FilePage> {
         const query = new URLSearchParams({ path: validPath(path) });
         if (options?.cursor) query.set('cursor', options.cursor);
+        if (options?.fields) query.set('fields', options.fields);
         const page = await this.http.json<FilePage>(`${this.base}/entries?${query}`, {}, options);
         if (!page || !Array.isArray(page.entries) || !(page.nextCursor === null || typeof page.nextCursor === 'string')) throw new FSError('EIO', 'Invalid directory response');
         for (const entry of page.entries) { validName(entry?.name); validateStat(entry?.stat);

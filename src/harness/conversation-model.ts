@@ -7,6 +7,7 @@ export interface HarnessMessage {
     /** Native provenance aligned with contentParts; unknown origins stay visible. */
     contentPartKinds?: string[];
     turnId?: string; name?: string; input?: string; inputLanguage?: 'bash' | 'json' | 'text';
+    submittedAt?: number; startedAt?: number; completedAt?: number; endedAt?: number;
     timestamp?: number; paths?: string[]; operation?: ToolOperation; commandPreview?: string;
     commandOutput?: import('./contracts').HarnessCommandOutput;
 }
@@ -23,6 +24,8 @@ export function nativeMessage(value: unknown, fallback: string, turnId?: string,
     if (!text) return;
     return {id: typeof item.id === 'string' ? item.id : fallback, role, text, turnId: typeof item.turnId === 'string' ? item.turnId : turnId,
         timestamp: messageTime(item.timestamp ?? item.createdAt ?? item.startedAt) ?? at,
+        submittedAt: messageTime(item.submittedAt), startedAt: messageTime(item.startedAt),
+        completedAt: messageTime(item.completedAt), endedAt: messageTime(item.endedAt),
         ...(type === 'reasoning' ? {contentParts: [text], contentPartKinds: ['assistant.reasoning']} : {}),
         status: typeof item.status === 'string' ? item.status : undefined,
         ...(role === 'user' && Array.isArray(item.content) && typeof item.text !== 'string'
@@ -61,7 +64,13 @@ export function boundMessages(messages: HarnessMessage[]): HarnessMessage[] {
     return messages;
 }
 export function mergeMessages(first: HarnessMessage[], second: HarnessMessage[]): HarnessMessage[] {
-    const messages = [...new Map([...first, ...second].map(message => [message.id, message])).values()];
+    const merged = new Map(first.map(message => [message.id, message]));
+    for (const message of second) {
+        const prior = merged.get(message.id);
+        merged.set(message.id, {...prior, ...message, submittedAt: message.submittedAt ?? prior?.submittedAt,
+            startedAt: message.startedAt ?? prior?.startedAt, completedAt: message.completedAt ?? prior?.completedAt, endedAt: message.endedAt ?? prior?.endedAt});
+    }
+    const messages = [...merged.values()];
     if (messages.every(message => message.timestamp !== undefined)) messages.sort((left, right) => left.timestamp! - right.timestamp!);
     return boundMessages(messages);
 }

@@ -101,7 +101,7 @@ export interface HarnessClient {
     archive?(profileId: string, sessionId: string, archived: boolean, options?: HarnessMutationOptions): Promise<{session: HarnessSession}>;
     search?(profileId: string, query: {query: string; mode: 'title' | 'content' | 'prompt'; archived?: boolean}, options?: OperationOptions): Promise<HarnessSearchResult>;
     profiles(options?: OperationOptions): Promise<{ epoch: string; profiles: HarnessProfile[] }>;
-    list(profileId: string, query?: { cursor?: string; archived?: boolean }, options?: OperationOptions): Promise<HarnessPage>;
+    list(profileId: string, query?: { cursor?: string; archived?: boolean; limit?: number }, options?: OperationOptions): Promise<HarnessPage>;
     read(profileId: string, sessionId: string, options?: HarnessHistoryOptions): Promise<HarnessHistory>;
     inspect?(profileId: string, sessionId: string, options?: OperationOptions): Promise<{session: HarnessSession}>;
     fork?(profileId: string, sessionId: string, name?: string, options?: HarnessForkOptions): Promise<HarnessForkResult>;

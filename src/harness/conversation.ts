@@ -758,13 +758,21 @@ export class HarnessConversation implements HarnessConversationPort {
         }
         if (method === 'item/started' || method === 'item/completed') {
             const message = nativeMessage(params.item, `item:${String(params.itemId ?? '')}`, turnId, at);
-            if (message) { this.replace(message); if (method === 'item/completed') { this.completedItems.add(message.id); if (this.completedItems.size > 1000) this.completedItems.delete(this.completedItems.values().next().value!); } }
+            if (message) {
+                const previous = this.messages.find(item => item.id === message.id);
+                message.startedAt ??= previous?.startedAt ?? (method === 'item/started' ? at : undefined);
+                if (method === 'item/completed') {
+                    message.status ??= 'completed';
+                    if (['failed', 'cancelled', 'interrupted'].includes(message.status)) message.endedAt ??= at;
+                    else message.completedAt ??= at;
+                }
+                this.replace(message); if (method === 'item/completed') { this.completedItems.add(message.id); if (this.completedItems.size > 1000) this.completedItems.delete(this.completedItems.values().next().value!); } }
         }
         if (['item/agentMessage/delta', 'item/commandExecution/outputDelta', 'item/reasoning/textDelta', 'item/reasoning/summaryTextDelta'].includes(method)
             && typeof params.delta === 'string' && typeof params.itemId === 'string' && !this.completedItems.has(params.itemId)) {
             if (method === 'item/commandExecution/outputDelta') return;
             const prior = this.messages.find(m => m.id === params.itemId);
-            this.replace({...prior, id: params.itemId, turnId: turnId ?? prior?.turnId, timestamp: prior?.timestamp ?? at, role: method.includes('reasoning') ? 'system' : 'assistant', text: (prior?.text ?? '') + params.delta, status: prior?.status ?? 'running'});
+            this.replace({...prior, id: params.itemId, turnId: turnId ?? prior?.turnId, timestamp: prior?.timestamp ?? at, startedAt: prior?.startedAt ?? at, role: method.includes('reasoning') ? 'system' : 'assistant', text: (prior?.text ?? '') + params.delta, status: prior?.status ?? 'running'});
         }
     }
     private observeContext(value: unknown, at = Date.now()): void {
