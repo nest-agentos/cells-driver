@@ -1,6 +1,6 @@
 import {expect, it, vi} from 'vitest';
 import {sha256} from '@nestos/vfs-sync';
-import {MCPHarnessClient} from '../src/harness/client';
+import {CellsHarnessClient} from '../src/harness/client';
 import {HarnessConversation} from '../src/harness/conversation';
 import {validateCommandResult} from '../src/harness/commands';
 import {previewOutput, loadCommandOutput, validateCommandOutputPage} from '../src/harness/command-output';
@@ -25,7 +25,7 @@ function fixture(initial: unknown, saved?: HarnessRecovery) {
     const call = vi.fn(async (name: string, args: Record<string, unknown>) => name === 'harness_profiles' ? {epoch: 'epoch', profiles: [profile]}
         : name === 'harness_operation' ? {outcome: 'committed', requestId: args.requestId, result: receiptResult}
         : {outcome: 'committed', requestId: args.requestId, result: response});
-    const native = new MCPHarnessClient({call, close: vi.fn()});
+    const native = new CellsHarnessClient({call, close: vi.fn()});
     const peer = {profiles: native.profiles.bind(native), command: native.command.bind(native), operation: native.operation.bind(native),
         queryCommand: vi.fn(async (_profile, _session, _name, _args, options) => ({commandId: options?.requestId ?? 'query', status: 'completed', output: 'State'})),
         commands: vi.fn(async () => commands), turn: vi.fn(async () => ({turnId: 'next-turn'})),
@@ -110,11 +110,11 @@ it('rejects excessive download budgets and cancellation before dispatching anoth
 
 it('requires positive output capability and sends exact frozen scope, epoch and byte identity', async () => {
     const f = await output('abc'), call = vi.fn(async (name: string) => name === 'harness_profiles' ? {epoch: 'current', profiles: [profile]} : f.page());
-    const client = new MCPHarnessClient({call, close: vi.fn()}, {projectId: 'project', revision: 2});
+    const client = new CellsHarnessClient({call, close: vi.fn()}, {projectId: 'project', revision: 2});
     await client.readCommandOutput('native', f.ref, {offset: 0, limit: 3});
     expect(call).toHaveBeenCalledWith('harness_command_output', expect.objectContaining({projectId: 'project', revision: 2,
         epoch: 'epoch', requestId: 'operation', sha256: f.ref.sha256, bytes: 3, offset: 0, limit: 3}), expect.anything());
-    const legacy = new MCPHarnessClient({call: vi.fn(async () => ({epoch: 'e', profiles: [{...profile, capabilities: {...profile.capabilities, commandOutputs: false}}]})), close: vi.fn()});
+    const legacy = new CellsHarnessClient({call: vi.fn(async () => ({epoch: 'e', profiles: [{...profile, capabilities: {...profile.capabilities, commandOutputs: false}}]})), close: vi.fn()});
     await expect(legacy.readCommandOutput('native', f.ref)).rejects.toMatchObject({code: 'ECAPABILITY'});
 });
 
@@ -140,7 +140,7 @@ it.each([true, false])('negotiates reference projection only for capable nodes (
     const call = vi.fn(async (name: string, args: Record<string, unknown>) => name === 'harness_profiles'
         ? {epoch: 'epoch', profiles: [{...profile, capabilities: {...profile.capabilities, commandOutputs: capable}}]}
         : {requestId: args.requestId, outcome: 'committed', result: {commandId: 'native', output: 'Done', status: 'completed'}});
-    const client = new MCPHarnessClient({call, close: vi.fn()});
+    const client = new CellsHarnessClient({call, close: vi.fn()});
     await client.command('native', 'session', 'compact', '', {requestId: 'once'}); await client.operation('native', 'once');
     for (const [name, args] of call.mock.calls.filter(([name]) => ['harness_command', 'harness_operation'].includes(name))) {
         expect(name).toBeDefined(); expect(args.outputMode).toBe(capable ? 'reference' : undefined);

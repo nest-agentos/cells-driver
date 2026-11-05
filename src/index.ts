@@ -41,3 +41,7 @@ export type {HarnessCommandOutputRef, HarnessCommandOutputPage, HarnessCommandOu
 
 
 export type {HarnessMetrics} from './harness/metrics';
+
+
+export {CellsHarnessClient} from './harness/client';
+export {CellsProjectClient} from './projects';

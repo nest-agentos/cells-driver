@@ -1,6 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import {validateCommands, validateCommandCatalog} from '../src/harness/commands';
-import { MCPHarnessClient } from '../src/harness/client';
+import { CellsHarnessClient } from '../src/harness/client';
 import { createCellsDriver } from '../src/provider';
 import { validateEvents, validateHistory, validatePage, validateProfiles, validateSession } from '../src/harness/validation';
 
@@ -10,7 +10,7 @@ it('negotiates an existing project working directory and retains its original cr
     const call = vi.fn(async (name: string, args: Record<string, unknown>) => name === 'harness_profiles' ? {epoch: 'e', profiles: [
         {id: 'codex', kind: 'codex', projectRuntime: true, workspaces: [{id: 'p'}], capabilities: {workingDirectory: supported, history: true, create: true, resume: true, interrupt: true, interactions: true}},
     ]} : {requestId: args.requestId, outcome: 'committed', result: {session}});
-    const client = new MCPHarnessClient({call, close: vi.fn()}, {projectId: 'p', revision: 1});
+    const client = new CellsHarnessClient({call, close: vi.fn()}, {projectId: 'p', revision: 1});
     await client.create('codex', 'p', {requestId: 'create-once', directory: '_nestos/worktrees/task'});
     expect(call).toHaveBeenCalledWith('harness_create', expect.objectContaining({directory: '_nestos/worktrees/task', requestId: 'create-once', projectId: 'p'}), expect.anything());
     supported = false;
@@ -20,13 +20,13 @@ it('negotiates an existing project working directory and retains its original cr
 });
 it('negotiates scoped directory subscriptions and releases them on close', async () => {
     const stop = vi.fn(), subscribe = vi.fn(() => stop), changed = vi.fn();
-    const client = new MCPHarnessClient({call: vi.fn(), subscribe, close: vi.fn(), metadata: async () => ({'itookit/cells': {directoryScopes: true}})}, {projectId: 'p', revision: 1});
+    const client = new CellsHarnessClient({call: vi.fn(), subscribe, close: vi.fn(), metadata: async () => ({directoryScopes: true})}, {projectId: 'p', revision: 1});
     client.subscribeDirectoryPath('_nestos/kanban/inbox', changed);
     await vi.waitFor(() => expect(subscribe).toHaveBeenCalledWith('projects', {projectId: 'p', revision: 1, directory: '_nestos/kanban/inbox'}, expect.anything()));
     await client.close(); expect(stop).toHaveBeenCalledOnce();
 });
 it('rejects invalid turn input as not committed without discovering or mutating a remote session', async () => {
-    const call = vi.fn(), client = new MCPHarnessClient({call, close: vi.fn()});
+    const call = vi.fn(), client = new CellsHarnessClient({call, close: vi.fn()});
     await expect(client.turn('native', 's', '中'.repeat(50000), {requestId: 'too-large'})).rejects.toMatchObject({
         outcome: 'not-committed', requestId: 'too-large', attachmentCode: 'HARNESS_PROMPT_LIMIT'});
     await expect(client.turn('native', 's', 'Review', {requestId: 'bad-file', attachments: [
@@ -38,7 +38,7 @@ it('negotiates a receipt-free command query and rejects malformed results or leg
     const capabilities = {history: true, create: true, resume: true, interrupt: true, interactions: true, slashCommands: true, commandQueries: true};
     let result: unknown = {commandId: 'query', output: 'State', status: 'completed'};
     const call = vi.fn(async (name: string) => name === 'harness_profiles' ? {epoch: 'e', profiles: [{id: 'native', kind: 'native', workspaces: [], capabilities}]} : result);
-    const client = new MCPHarnessClient({call, close: vi.fn()}); await client.profiles();
+    const client = new CellsHarnessClient({call, close: vi.fn()}); await client.profiles();
     expect(await client.queryCommand('native', 's', 'session:status', '', {requestId: 'query'})).toEqual(result);
     expect(call).toHaveBeenLastCalledWith('harness_query', {profileId: 'native', sessionId: 's', command: 'session:status', arguments: '', requestId: 'query'}, {requestId: 'query'});
     for (const invalid of [{commandId: 'wrong', status: 'completed'}, {commandId: 'query', status: 'running'}, {commandId: 'query', status: 'completed', turnId: 't'}]) {
@@ -51,7 +51,7 @@ it('negotiates a receipt-free command query and rejects malformed results or leg
 it('preserves incomplete native command observations without turning them into an empty complete catalog', async () => {
     const value = {commands: [{name: 'session:status', description: 'State', kind: 'action', execution: 'query'}],
         observation: {complete: false, code: 'DSH_SESSION_NOT_ATTACHED'}};
-    const client = new MCPHarnessClient({call: vi.fn(async () => value), close: vi.fn()});
+    const client = new CellsHarnessClient({call: vi.fn(async () => value), close: vi.fn()});
     expect(await client.commandCatalog('dsh', 's')).toEqual(value);
     expect(await client.commands('dsh', 's')).toEqual(value.commands);
     expect(validateCommandCatalog({commands: []})).toEqual({commands: []});
@@ -64,17 +64,17 @@ it('negotiates exact checkpoint fork and preserves created identity when proof i
         interactions: true, fork: true, checkpointFork: true}};
     const call = vi.fn(async (name, args) => name === 'harness_profiles' ? {epoch: 'e', profiles: [profile]}
         : {outcome: 'committed', requestId: args.requestId, result: {session: {...session, id: 'created'}}});
-    const client = new MCPHarnessClient({call, close: vi.fn()});
+    const client = new CellsHarnessClient({call, close: vi.fn()});
     expect(await client.fork('codex', 's', undefined, {requestId: 'fork', lastTurnId: 'old-turn'})).toMatchObject({
         session: {id: 'created'}, checkpoint: {sourceSessionId: 's', turnId: 'old-turn', verified: false, code: 'HARNESS_CHECKPOINT_BOUNDARY_UNKNOWN'}});
     expect(call).toHaveBeenLastCalledWith('harness_fork', expect.objectContaining({sessionId: 's', lastTurnId: 'old-turn', requestId: 'fork'}), expect.anything());
 });
 it('does not send checkpoint requests to legacy nodes or turn discovery failure into an unknown mutation', async () => {
-    const call = vi.fn(async () => ({epoch: 'e', profiles: []})), client = new MCPHarnessClient({call, close: vi.fn()});
+    const call = vi.fn(async () => ({epoch: 'e', profiles: []})), client = new CellsHarnessClient({call, close: vi.fn()});
     await expect(client.fork('codex', 's', undefined, {requestId: 'fork', lastTurnId: 'old-turn'}))
         .rejects.toMatchObject({code: 'ECAPABILITY', outcome: 'not-committed', requestId: 'fork'});
     expect(call).toHaveBeenCalledOnce();
-    const failed = new MCPHarnessClient({call: vi.fn(async () => {throw new Error('Discovery unavailable');}), close: vi.fn()});
+    const failed = new CellsHarnessClient({call: vi.fn(async () => {throw new Error('Discovery unavailable');}), close: vi.fn()});
     await expect(failed.fork('codex', 's', undefined, {requestId: 'fork', lastTurnId: 'old-turn'}))
         .rejects.toMatchObject({outcome: 'not-committed', requestId: 'fork'});
 });
@@ -105,7 +105,7 @@ it('carries an epoch and stable receipt identity, without replay after a lost re
         if (name === 'harness_operation') return { outcome:'committed',requestId:args.requestId,result:{ session } };
         throw new Error('response lost');
     });
-    const client = new MCPHarnessClient({ call,close:vi.fn() });
+    const client = new CellsHarnessClient({ call,close:vi.fn() });
     const error = await client.create('codex','project').catch(e => e);
     expect(error.outcome).toBe('unknown'); expect(typeof error.requestId).toBe('string');
     expect(call.mock.calls.filter(([name]) => name === 'harness_create')).toHaveLength(1);
@@ -116,14 +116,14 @@ it('carries an epoch and stable receipt identity, without replay after a lost re
 });
 
 it('keeps explicit refusal separate from unknown outcomes',async () => {
-    const client = new MCPHarnessClient({ close:vi.fn(),call:async (name,args) => name === 'harness_profiles'
+    const client = new CellsHarnessClient({ close:vi.fn(),call:async (name,args) => name === 'harness_profiles'
         ? { epoch:'e',profiles:[] } : { outcome:'not-committed',requestId:(args as { requestId:string }).requestId,code:'EACCES' } });
     await expect(client.resume('codex','s')).rejects.toMatchObject({ outcome:'not-committed',code:'EACCES' });
 });
 
 it('reports failed profile discovery as not sent and never dispatches the mutation', async () => {
     const call = vi.fn(async () => {throw new TypeError('Load failed');});
-    const client = new MCPHarnessClient({call, close: vi.fn()});
+    const client = new CellsHarnessClient({call, close: vi.fn()});
     await expect(client.resume('codex', 's', {requestId: 'before-dispatch'}))
         .rejects.toMatchObject({outcome: 'not-committed', requestId: 'before-dispatch'});
     expect(call).toHaveBeenCalledOnce(); expect(call.mock.calls[0][0]).toBe('harness_profiles');
@@ -142,7 +142,7 @@ it('reads compact histories and receives live events without a polling RPC', asy
     const subscribe = vi.fn((_plugin, _args, listener) => {
         queueMicrotask(() => listener.next({epoch:'events',cursor:7,gap:false,events:[],requests:[]})); return stop;
     });
-    const client = new MCPHarnessClient({call,subscribe,close:vi.fn()});
+    const client = new CellsHarnessClient({call,subscribe,close:vi.fn()});
     await client.read('codex','s',{cursor:'old',toolDetail:'summary'});
     expect((await client.eventSnapshot('codex',{after:7,eventEpoch:'events'})).cursor).toBe(7);
     expect(call).toHaveBeenCalledOnce();
@@ -151,13 +151,13 @@ it('reads compact histories and receives live events without a polling RPC', asy
     await client.close(); expect(stop).toHaveBeenCalledOnce();
 });
 
-it('uses the MCP v2 SDK and resolves updated credentials for each request',async () => {
+it('uses fixed Cells endpoints and resolves updated credentials for each request',async () => {
     const fetch = vi.fn(async (_input: unknown, init?: RequestInit) => {
-        const body = init?.body ? JSON.parse(String(init.body)) : await (_input as Request).clone().json();
-        const result = body.method === 'server/discover'
-            ? { resultType:'complete',ttlMs:0,cacheScope:'private',supportedVersions:['2026-07-28'],capabilities:{ tools:{} },_meta:{ 'io.modelcontextprotocol/serverInfo':{name:'test',version:'1'} } }
-            : { resultType:'complete',content:[],structuredContent:{ epoch:'e',profiles:[] } };
-        return new Response(JSON.stringify({ jsonrpc:'2.0',id:body.id,result }),{ headers:{ 'content-type':'application/json' } });
+        const path = new URL(String(_input)).pathname;
+        expect(path).not.toContain('/mcp');
+        if (path === '/v1/capabilities') return Response.json({node:{version:1,api:{version:1},events:{version:1,transport:'sse',endpoint:'/v1/events'}}});
+        expect(path).toBe('/v1/api/harness/profiles');
+        return Response.json({ok:true,value:{epoch:'e',profiles:[]}});
     });
     const adapter = createCellsDriver(undefined,fetch);
     adapter.setCredential('ref','first');
@@ -171,7 +171,7 @@ it('uses the MCP v2 SDK and resolves updated credentials for each request',async
 it('retains receipt identity when a committed payload cannot be decoded',async () => {
     const call = vi.fn(async (name: string, args: object) => name === 'harness_profiles'
         ? {epoch:'e',profiles:[]} : {outcome:'committed',requestId:(args as {requestId:string}).requestId,result:{session:{id:'broken'}}});
-    const client = new MCPHarnessClient({call,close:vi.fn()});
+    const client = new CellsHarnessClient({call,close:vi.fn()});
     const error = await client.create('codex','project').catch(e => e);
     expect(error.outcome).toBe('committed'); expect(typeof error.requestId).toBe('string');
     expect(error.remoteCode).toBe('HARNESS_COMMITTED_RESULT_INVALID');
@@ -182,7 +182,7 @@ it('retains receipt identity when a committed payload cannot be decoded',async (
 it('uses the persisted mutation identity and queries the original epoch during recovery',async () => {
     const call=vi.fn(async (name:string,args:Record<string,unknown>) => name==='harness_profiles'
         ? {epoch:'current',profiles:[]} : {outcome:'committed',requestId:args.requestId,result:{session}});
-    const client: import('../src/harness/contracts').HarnessClient=new MCPHarnessClient({call,close:vi.fn()});
+    const client: import('../src/harness/contracts').HarnessClient=new CellsHarnessClient({call,close:vi.fn()});
     await client.create('codex','project',{requestId:'persisted',epoch:'original'});
     await client.operation('codex','persisted',{epoch:'original'});
     expect(call.mock.calls.find(([name])=>name==='harness_create')?.[1]).toMatchObject({requestId:'persisted',epoch:'original'});
@@ -190,7 +190,7 @@ it('uses the persisted mutation identity and queries the original epoch during r
 });
 
 it('rejects a recovery receipt belonging to another request',async () => {
-    const client=new MCPHarnessClient({call:vi.fn(async name=>name==='harness_profiles'?{epoch:'e',profiles:[]}:{outcome:'committed',requestId:'other',result:{session}}),close:vi.fn()});
+    const client=new CellsHarnessClient({call:vi.fn(async name=>name==='harness_profiles'?{epoch:'e',profiles:[]}:{outcome:'committed',requestId:'other',result:{session}}),close:vi.fn()});
     await expect(client.operation('codex','requested')).rejects.toMatchObject({code:'EIO'});
 });
 
@@ -198,7 +198,7 @@ it('receives directory invalidations through the shared stream and releases its 
     let listener: import('../src/events').RemoteEventListener | undefined;
     const stop = vi.fn(), close = vi.fn(), call = vi.fn();
     const subscribe = vi.fn((_plugin,_args,next) => {listener=next;return stop;});
-    const client = new MCPHarnessClient({call,subscribe,close},{projectId:'p',revision:2,readOnly:true});
+    const client = new CellsHarnessClient({call,subscribe,close},{projectId:'p',revision:2,readOnly:true});
     const changed = vi.fn(), release = client.subscribeDirectory(changed);
     listener!.next({version:'token:1',gap:false,truncated:true});
     expect(client.directorySnapshot()).toBe('token:1'); expect(changed).toHaveBeenCalledOnce();
@@ -213,7 +213,7 @@ it.each(['missing', 'throws'])('uses the internal mutation ID generator when nat
         ...(mode === 'throws' ? {randomUUID: () => {throw new Error('Native UUID unavailable');}} : {})});
     const call = vi.fn(async (name: string, args: Record<string, unknown>) => name === 'harness_profiles' ? {epoch: 'e', profiles: []}
         : {outcome: 'committed', requestId: args.requestId, result: {session}});
-    const client = new MCPHarnessClient({call, close: vi.fn()});
+    const client = new CellsHarnessClient({call, close: vi.fn()});
     try {
         await client.create('codex', 'project');
         expect(call).toHaveBeenCalledWith('harness_create', expect.objectContaining({requestId: expect.stringMatching(/^[\da-f]{8}-[\da-f-]{27}$/i)}), undefined);
@@ -224,7 +224,7 @@ it('validates native catalogs and carries project scope plus stable command rece
     const call = vi.fn(async (name: string, args: Record<string, unknown>) => name === 'harness_commands' ? {commands}
         : name === 'harness_profiles' ? {epoch: 'e', profiles: []}
         : {requestId: args.requestId, outcome: 'committed', result: {commandId: 'native', output: 'Done'}});
-    const client = new MCPHarnessClient({call, close: vi.fn()}, {projectId: 'p', revision: 3});
+    const client = new CellsHarnessClient({call, close: vi.fn()}, {projectId: 'p', revision: 3});
     expect(await client.commands('claude', 's')).toEqual(commands);
     await client.command('claude', 's', 'team:verify', 'src', {requestId: 'once'});
     expect(call).toHaveBeenCalledWith('harness_commands', {profileId: 'claude', sessionId: 's', projectId: 'p', revision: 3}, undefined);
@@ -238,11 +238,11 @@ it('negotiates steering and validates its exact receipt without sending to legac
     const profiles = [{id: 'codex', kind: 'codex', workspaces: [{id: 'p'}], capabilities: {history: true, create: true, resume: true, interrupt: true, interactions: true, steer: true}}];
     const call = vi.fn(async (name: string, args: Record<string, unknown>) => name === 'harness_profiles' ? {epoch: 'e', profiles}
         : {requestId: args.requestId, outcome: 'committed', result: {turnId: args.turnId}});
-    const client = new MCPHarnessClient({call, close: vi.fn()});
+    const client = new CellsHarnessClient({call, close: vi.fn()});
     expect(await client.steer('codex', 's', 'active', 'Context', {requestId: 'context'})).toEqual({turnId: 'active'});
     expect(call).toHaveBeenLastCalledWith('harness_steer', expect.objectContaining({sessionId: 's', turnId: 'active', requestId: 'context'}), expect.anything());
     const legacyCall = vi.fn(async () => ({epoch: 'e', profiles: []}));
-    const legacy = new MCPHarnessClient({call: legacyCall, close: vi.fn()});
+    const legacy = new CellsHarnessClient({call: legacyCall, close: vi.fn()});
     await expect(legacy.steer('codex', 's', 'active', 'Context', {requestId: 'legacy'})).rejects.toMatchObject({code: 'ECAPABILITY', outcome: 'not-committed'});
     expect(legacyCall).toHaveBeenCalledOnce();
     await expect(client.steer('codex', 's', 'active', '中'.repeat(50000), {requestId: 'large'})).rejects.toMatchObject({outcome: 'not-committed'});

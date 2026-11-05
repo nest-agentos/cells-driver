@@ -1,8 +1,8 @@
 import {validateAuthorization, validateProjectCapabilities, type RemoteAuthorization, type RemoteProjectCapabilities} from './authorization';
 import { MCPDirectorySyncClient, type DirectorySyncClient } from './directory-sync';
 import { FSError, type OperationOptions } from '@nestos/vfs-core';
-import { MCPHarnessClient } from './harness/client';
-import { HarnessRpc } from './harness/rpc';
+import { CellsHarnessClient } from './harness/client';
+import { CellsRpc } from './harness/rpc';
 import type { HarnessClient } from './harness/contracts';
 import { validateFileSearch, validateSearchDirectory, type FileSearchQuery, type FileSearchResult } from './search';
 
@@ -16,6 +16,7 @@ export interface RemoteProject {
 export interface RegisterProject { id?: string; name: string; alias: string; path: string; access: 'ro' | 'rw'; mounts?: ProjectMount[]; createDirectory?: boolean }
 export interface ProjectProcess { state: string; stdout: string; stderr: string; code: number | null; error: string | null; truncated: boolean }
 export interface ProjectClient {
+    channel?(project: RemoteProject, operation: 'open' | 'messages' | 'close' | 'requests' | 'respond' | 'current' | 'acknowledge', input: Record<string, unknown>, options?: OperationOptions): Promise<unknown>;
     executionSettings?(project: RemoteProject, options?: OperationOptions): Promise<ProjectExecutionSettings>;
     setExecution?(project: RemoteProject, execution: ProjectEnvironment, options?: OperationOptions): Promise<RemoteProject>;
     search?(project: RemoteProject, query: FileSearchQuery, options?: OperationOptions): Promise<FileSearchResult>;
@@ -31,11 +32,14 @@ export interface ProjectClient {
     directorySync(): DirectorySyncClient;
     close(): Promise<void>;
 }
-export class MCPProjectClient implements ProjectClient {
-    constructor(private readonly rpc: HarnessRpc) {}
+export class CellsProjectClient implements ProjectClient {
+    channel(project: RemoteProject, operation: 'open' | 'messages' | 'close' | 'requests' | 'respond' | 'current' | 'acknowledge', input: Record<string, unknown>, options?: OperationOptions): Promise<unknown> {
+        return this.rpc.call('project_channel_' + operation, {...input, projectId: project.id, revision: project.revision}, options);
+    }
+    constructor(private readonly rpc: CellsRpc) {}
     async executionSettings(project: RemoteProject, options?: OperationOptions): Promise<ProjectExecutionSettings> {
         const meta = await this.rpc.metadata?.(options);
-        const capability = meta?.['itookit/cells'] as {projectExecutionEnvironment?: boolean} | undefined;
+        const capability = meta as {projectExecutionEnvironment?: boolean} | undefined;
         if (capability?.projectExecutionEnvironment !== true) throw new FSError('ECAPABILITY', 'Node execution settings require a newer server');
         const value = await this.rpc.call('project_execution', {projectId: project.id}, options) as ProjectExecutionSettings;
         if (!value || !Array.isArray(value.profiles) || value.profiles.some(p => !p || typeof p.id !== 'string' || typeof p.name !== 'string' || p.user !== null && typeof p.user !== 'string')) throw new FSError('EIO', 'Invalid execution profiles');
@@ -51,7 +55,7 @@ export class MCPProjectClient implements ProjectClient {
     async search(project: RemoteProject, query: FileSearchQuery, options?: OperationOptions) {
         validateSearchDirectory(query.directory);
         const meta = await this.rpc.metadata?.(options);
-        const capabilities = meta?.['itookit/cells'] as {fileSearch?: boolean; fileSearchVersion?: number; searchKeywords?: boolean} | undefined;
+        const capabilities = meta as {fileSearch?: boolean; fileSearchVersion?: number; searchKeywords?: boolean} | undefined;
         if (capabilities?.fileSearch === false) throw new FSError('ECAPABILITY', 'Server file search unavailable');
         if (/[^\S\r\n]/u.test(query.query) && capabilities?.searchKeywords !== true)
             throw new FSError('ECAPABILITY', 'Keyword search requires a newer server');
@@ -88,7 +92,7 @@ export class MCPProjectClient implements ProjectClient {
         if (!value?.process || typeof value.process.state !== 'string' || typeof value.process.stdout !== 'string' || typeof value.process.stderr !== 'string') throw new FSError('EIO','Invalid project process');
         return value.process;
     }
-    harness(project: RemoteProject, options?: {readOnly?: boolean}) { return new MCPHarnessClient(this.rpc,{projectId:project.id,revision:project.revision,capabilities:project.capabilities,...options}); }
+    harness(project: RemoteProject, options?: {readOnly?: boolean}) { return new CellsHarnessClient(this.rpc,{projectId:project.id,revision:project.revision,capabilities:project.capabilities,...options}); }
     private async project(name: string, args: object, options?: OperationOptions) {
         const value = await this.rpc.call(name,args,options) as {project?: unknown}; return validateProject(value?.project);
     }

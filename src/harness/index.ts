@@ -33,3 +33,6 @@ export {validateTurnInput as validateHarnessTurnInput} from './attachments';
 export type {HarnessMetrics} from './metrics';
 
 export type {HarnessDigestMessage, HarnessSessionDigest} from './digest';
+
+
+export {CellsHarnessClient} from './client';

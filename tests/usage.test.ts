@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 import { validateUsage } from '../src/harness/usage';
 import { validateSession } from '../src/harness/validation';
-import { MCPHarnessClient } from '../src/harness/client';
+import { CellsHarnessClient } from '../src/harness/client';
 import { HarnessConversation } from '../src/harness/conversation';
 const tokens = {inputTokens: 60, outputTokens: 20, cacheReadTokens: 40, cacheWriteTokens: 0, reasoningTokens: 5};
 const usage = {sessionId: 's', source: 'native-history', scope: 'transcript', revision: 'r1', complete: true, observedAt: Date.now(),
@@ -17,7 +17,7 @@ it('validates usage identity, token buckets and totals without inferring money',
 });
 it('queries the read-only usage capability with the authorized project scope', async () => {
     const calls: unknown[] = [];
-    const client = new MCPHarnessClient({call: async (...args: unknown[]) => {calls.push(args); return usage;}, close: async () => {}}, {projectId: 'p', revision: 3});
+    const client = new CellsHarnessClient({call: async (...args: unknown[]) => {calls.push(args); return usage;}, close: async () => {}}, {projectId: 'p', revision: 3});
     expect(await client.usage('codex-main', 's')).toEqual(usage);
     expect(calls[0]).toEqual(['harness_session_usage', {projectId: 'p', revision: 3, profileId: 'codex-main', sessionId: 's'}, undefined]);
 });

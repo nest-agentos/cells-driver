@@ -1,6 +1,6 @@
 import {expect, it, vi} from 'vitest';
 import {validateModels} from '../src/harness/models';
-import {MCPHarnessClient} from '../src/harness/client';
+import {CellsHarnessClient} from '../src/harness/client';
 
 const catalog = {models: [{id: 'native', label: 'Native model', reasoningEfforts: [{id: 'high', label: 'High'}]}]};
 it('keeps native reasoning ids and rejects duplicate or malformed catalogs', () => {
@@ -12,7 +12,7 @@ it('keeps native reasoning ids and rejects duplicate or malformed catalogs', () 
 it('queries the authorized catalog and sends a captured selection in the receipted turn', async () => {
     const call = vi.fn(async (name: string, args: any) => name === 'harness_models' ? catalog
         : name === 'harness_profiles' ? {epoch: 'e', profiles: []} : {requestId: args.requestId, outcome: 'committed', result: {turnId: 't'}});
-    const client = new MCPHarnessClient({call, close: vi.fn()} as never, {projectId: 'p', revision: 2});
+    const client = new CellsHarnessClient({call, close: vi.fn()} as never, {projectId: 'p', revision: 2});
     await expect(client.models('profile', 'session')).resolves.toEqual(catalog);
     expect(call).toHaveBeenCalledWith('harness_models', {projectId: 'p', revision: 2, profileId: 'profile', sessionId: 'session'}, undefined);
     await client.turn('profile', 'session', 'Prompt', {requestId: 'op', selection: {modelId: 'native', reasoningEffort: 'high'}});

@@ -6,7 +6,7 @@ export interface HarnessProfile {
     aliases?: string[];
     projectCapabilities?: import('../authorization').RemoteProjectCapabilities;
     id: string; kind: string; projectRuntime?: boolean; workspaces: Array<{ id: string }>;
-    capabilities: { workingDirectory?: boolean; executionRecovery?: boolean; sessionDigest?: boolean; metrics?: boolean; models?: boolean; slashCommands?: boolean; commandQueries?: boolean; commandOutputs?: boolean; usage?: boolean; history: boolean; create: boolean; resume: boolean; interrupt: boolean; steer?: boolean; interactions: boolean; fork?: boolean; checkpointFork?: boolean; search?: boolean; searchPrompts?: boolean; searchKeywords?: boolean; rename?: boolean; archive?: boolean; unarchive?: boolean; delete?: boolean; attachments?: Array<'text' | 'image'> };
+    capabilities: { sessionChannels?: boolean; workingDirectory?: boolean; executionRecovery?: boolean; sessionDigest?: boolean; metrics?: boolean; models?: boolean; slashCommands?: boolean; commandQueries?: boolean; commandOutputs?: boolean; usage?: boolean; history: boolean; create: boolean; resume: boolean; interrupt: boolean; steer?: boolean; interactions: boolean; fork?: boolean; checkpointFork?: boolean; search?: boolean; searchPrompts?: boolean; searchKeywords?: boolean; rename?: boolean; archive?: boolean; unarchive?: boolean; delete?: boolean; attachments?: Array<'text' | 'image'> };
 }
 export interface HarnessWriterLock {
     status: 'held' | 'not-held' | 'unknown'; checkedAt: number; acquiredAt?: number | null;
@@ -94,6 +94,7 @@ export interface HarnessClient {
     command?(profileId: string, sessionId: string, command: string, args: string, options?: HarnessCommandOptions): Promise<HarnessCommandResult>;
     usage?(profileId: string, sessionId: string, options?: OperationOptions): Promise<HarnessUsage>;
     directorySnapshot?(): string | undefined | Promise<string | undefined>;
+    subscribeChannel?(scopeId: string, listener: () => void): () => void;
     subscribeDirectory?(listener: () => void): () => void;
     subscribeDirectoryPath?(directory: string, listener: () => void): () => void;
     delete?(profileId: string, sessionId: string, options?: HarnessMutationOptions): Promise<{deletedSessionIds: string[]}>;

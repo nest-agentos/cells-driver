@@ -1,5 +1,5 @@
 import { FSError, type OperationOptions } from '@nestos/vfs-core';
-import type { HarnessRpc } from './harness/rpc';
+import type { CellsRpc } from './harness/rpc';
 export interface DirectoryContent { kind: 'file' | 'directory'; hash: string | null; executable: boolean; identity: string | null }
 export type DirectorySyncDirection = 'both' | 'upload' | 'download';
 export interface SyncContentPreview {
@@ -39,7 +39,7 @@ export interface DirectorySyncClient {
 }
 /** Plans are durable receipt identities; unknown outcomes require status, never a new plan. */
 export class MCPDirectorySyncClient implements DirectorySyncClient {
-    constructor(private readonly rpc: HarnessRpc) {}
+    constructor(private readonly rpc: CellsRpc) {}
     async directories(projectId: string, revision: number, path: string, options?: OperationOptions): Promise<string[]> {
         const value=await this.call('project_sync_directories',{projectId,revision,path},options) as {paths?: string[]};
         if (!Array.isArray(value?.paths) || value.paths.some(p=>typeof p!=='string' || p.startsWith('/') || p.split('/').some(s=>!s || s==='.' || s==='..'))) throw invalid();

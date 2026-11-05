@@ -7,7 +7,7 @@ import { createCellsDriver } from '../src/provider';
 
 const enabled = process.env.CELLS_HARNESS_TEST === '1';
 const manifest = resolve(process.env.CELLS_MANIFEST ?? '../../tools/cells/Cargo.toml');
-it.skipIf(!enabled)('roundtrips MCP SDK v2 → Rust gateway → native stdio harness',async () => {
+it.skipIf(!enabled)('roundtrips fixed Cells API → Rust gateway → native stdio harness',async () => {
     const root = await mkdtemp(join(tmpdir(),'itookit-harness-'));
     const fixture = join(root,'codex.py'), config = join(root,'config.toml');
     await writeFile(fixture,await readFile(join(dirname(manifest),'src/plugin/harness/tests/fixtures/codex-app-server.py'))); await chmod(fixture,0o700);
@@ -37,7 +37,7 @@ it.skipIf(!enabled)('roundtrips MCP SDK v2 → Rust gateway → native stdio har
             child.once('exit',code => { clearTimeout(timer); reject(new Error('cells exited: ' + code)); });
         });
         adapter = createCellsDriver(); adapter.setCredential('ref','test-harness-token-0123456789');
-        const descriptor = await adapter.discover({endpoint:endpoint + '/mcp',credentialRef:'ref'});
+        const descriptor = await adapter.discover({endpoint,credentialRef:'ref'});
         expect(descriptor).toMatchObject({version:1,fileProtocol:'fs-agent-http-v1',httpEndpoint:endpoint,harness:true,projects:true,projectProtocol:'fs-agent-project-v1'});
         const projects=adapter.projects({endpoint,credentialRef:'ref'});
         const project=await projects.register({name:'Nested',alias:'home',path:'nested',access:'rw',createDirectory:true});

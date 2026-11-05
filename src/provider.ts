@@ -3,9 +3,9 @@ import { createHttpSourceProvider, type HttpSourceProvider, type RemoteConnectio
 import { FSError, createFileSystemSource, FileStorageAdapter, type FileSystemSourceOwner } from '@nestos/vfs-core';
 import { HttpFSBackend } from './files/index';
 import { HttpSyncClient } from './sync/client';
-import { MCPHarnessClient } from './harness/client';
-import { createHarnessRpc, type HarnessRpc } from './harness/rpc';
-import { MCPProjectClient, type ProjectClient, type RemoteProject } from './projects';
+import { CellsHarnessClient } from './harness/client';
+import { createCellsRpc, type CellsRpc } from './harness/rpc';
+import { CellsProjectClient, type ProjectClient, type RemoteProject } from './projects';
 import { createProjectProcess } from './project-process';
 import type { HarnessClient, HarnessProfile } from './harness/contracts';
 import type { HarnessConversationJournal } from './harness/conversation-journal';
@@ -33,7 +33,6 @@ export function createCellsDriver(resolveCredential?: (reference: string) => str
     const eventHubs = new Map<string, NodeEventHub>();
     const eventHub = (connection: Connection): NodeEventHub => {
         const endpoint = new URL(connection.endpoint.endsWith('/') ? connection.endpoint : connection.endpoint+'/');
-        if (endpoint.pathname.endsWith('/mcp/')) endpoint.pathname = endpoint.pathname.slice(0,-4);
         const key = JSON.stringify([endpoint.href, connection.credentialRef, connection.username, connection.anonymous, connection.authorization]);
         let hub = eventHubs.get(key);
         if (!hub) { hub = new NodeEventHub(new URL('v1/events',endpoint),authenticatedFetch(connection,credential,fetch)); eventHubs.set(key,hub); }
@@ -54,18 +53,19 @@ export function createCellsDriver(resolveCredential?: (reference: string) => str
         observeHarness: (client: HarnessClient, writable = true, options?: {watchFiles?: boolean}) => new HarnessStatusObserver(client, Date.now, writable, options?.watchFiles ?? true),
         conversation: (client: HarnessClient, profile: HarnessProfile, workspaceId: string, sessionId?: string, writable?: boolean, journal?: HarnessConversationJournal) => new HarnessConversation(client, profile, workspaceId, sessionId, writable, journal),
         async discover(connection: Connection, options?: import('@nestos/vfs-core').OperationOptions): Promise<CellsDescriptor> {
-            const rpc = createHarnessRpc(connection.endpoint, authenticatedFetch(connection, credential, fetch), true);
+            const rpc = createCellsRpc(connection.endpoint, authenticatedFetch(connection, credential, fetch));
+            clients.add(rpc);
             try {
                 const value = await discoverCapabilities(rpc,options);
                 if (value?.version !== 1 || value.fileProtocol !== 'fs-agent-http-v1' || typeof value.harness !== 'boolean' || typeof value.httpEndpoint !== 'string'
                     || !(value.serverId === null || typeof value.serverId === 'string')) throw new FSError('ECAPABILITY', 'Invalid cells discovery');
-                const mcp = new URL(connection.endpoint), http = new URL(value.httpEndpoint, mcp);
-                if (http.origin !== mcp.origin || http.username || http.password || http.search || http.hash) throw new FSError('EACCES', 'Invalid cells HTTP endpoint');
+                const base = new URL(connection.endpoint.replace(/\/$/, '') + '/'), http = new URL(value.httpEndpoint, base);
+                if (http.origin !== base.origin || http.username || http.password || http.search || http.hash) throw new FSError('EACCES', 'Invalid cells HTTP endpoint');
                 const authorization = validateAuthorization(value.authorization);
                 if (authorization && authorization.anonymous !== !!connection.anonymous)
                     throw new FSError('EACCES', 'Remote authentication mode changed');
                 return { ...value, authorization, httpEndpoint: http.href.replace(/\/+$/, '') };
-            } finally { await rpc.close(); }
+            } finally { clients.delete(rpc); await rpc.close(); }
         },
         setCredential(ref: string, value: string) {
             const previous = secrets.get(ref); secrets.set(ref, value);
@@ -75,7 +75,7 @@ export function createCellsDriver(resolveCredential?: (reference: string) => str
         clearCredential(ref: string) { secrets.delete(ref); for (const hub of eventHubs.values()) hub.reconnect(); },
         harness(connection: Connection) {
             const snapshot = { ...connection };
-            const client = new MCPHarnessClient(createHarnessRpc(snapshot.endpoint, authenticatedFetch(snapshot, credential, fetch), false, eventHub(snapshot)));
+            const client = new CellsHarnessClient(createCellsRpc(snapshot.endpoint, authenticatedFetch(snapshot, credential, fetch), eventHub(snapshot)));
             const close = client.close.bind(client);
             client.close = async () => { clients.delete(client); await close(); };
             clients.add(client); return client;
@@ -99,7 +99,7 @@ export function createCellsDriver(resolveCredential?: (reference: string) => str
             catch(error) {await backend.close();throw error;}
         },
         async projectProcess(connection: Connection, project: RemoteProject, spec: Parameters<HttpSourceProvider['process']>[1]) {
-            const projects = new MCPProjectClient(createHarnessRpc(connection.endpoint,authenticatedFetch(connection,credential,fetch),false,eventHub(connection)));
+            const projects = new CellsProjectClient(createCellsRpc(connection.endpoint,authenticatedFetch(connection,credential,fetch),eventHub(connection)));
             try {
                 const owner=createProjectProcess({...connection,credential:() => credential(connection.credentialRef),fetch,events:eventHub(connection)},projects,project,spec);
                 const release=owner.release.bind(owner);
@@ -109,7 +109,7 @@ export function createCellsDriver(resolveCredential?: (reference: string) => str
             catch(error) {await projects.close(); throw error;}
         },
         projects(connection: Connection) {
-            const client = new MCPProjectClient(createHarnessRpc(connection.endpoint,authenticatedFetch(connection,credential,fetch),false,eventHub(connection)));
+            const client = new CellsProjectClient(createCellsRpc(connection.endpoint,authenticatedFetch(connection,credential,fetch),eventHub(connection)));
             const close = client.close.bind(client);
             client.close = async () => { clients.delete(client); await close(); };
             clients.add(client); return client;
@@ -127,10 +127,10 @@ export function createCellsDriver(resolveCredential?: (reference: string) => str
         },
     });
 }
-async function discoverCapabilities(rpc: HarnessRpc,options?: import('@nestos/vfs-core').OperationOptions): Promise<CellsDescriptor> {
-    const metadata = await rpc.metadata?.(options);
-    if (Object.hasOwn(metadata ?? {}, 'itookit/cells')) return metadata!['itookit/cells'] as CellsDescriptor;
-    return await rpc.call('cells_capabilities', {}, options) as CellsDescriptor;
+async function discoverCapabilities(rpc: CellsRpc,options?: import('@nestos/vfs-core').OperationOptions): Promise<CellsDescriptor> {
+    const descriptor = await rpc.metadata?.(options);
+    if (!descriptor) throw new FSError('ECAPABILITY', 'Cells API discovery unavailable');
+    return descriptor as unknown as CellsDescriptor;
 }
 
 function authenticatedFetch(connection: Connection, credential: (ref: string) => Promise<string>, fetch: typeof globalThis.fetch): typeof globalThis.fetch {

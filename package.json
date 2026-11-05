@@ -19,8 +19,7 @@
   },
   "dependencies": {
     "@nestos/vfs-core": "^0.5.1",
-    "@nestos/vfs-sync": "^0.5.1",
-    "@modelcontextprotocol/client": "2.0.0"
+    "@nestos/vfs-sync": "^0.5.1"
   },
   "devDependencies": {
     "typescript": "^5.9.3",

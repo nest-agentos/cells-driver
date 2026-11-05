@@ -62,7 +62,7 @@ export function validateProfiles(value: unknown): { epoch: string; profiles: Har
             || p.workspaces.some(w => typeof record(w).id !== 'string')
             || (caps.fork !== undefined && typeof caps.fork !== 'boolean')
             || (caps.search !== undefined && typeof caps.search !== 'boolean')
-            || ['workingDirectory', 'executionRecovery', 'sessionDigest', 'metrics', 'steer', 'models', 'slashCommands', 'commandQueries', 'commandOutputs', 'usage', 'checkpointFork', 'searchPrompts', 'searchKeywords', 'rename', 'archive', 'unarchive', 'delete'].some(key => caps[key] !== undefined && typeof caps[key] !== 'boolean')
+            || ['sessionChannels', 'workingDirectory', 'executionRecovery', 'sessionDigest', 'metrics', 'steer', 'models', 'slashCommands', 'commandQueries', 'commandOutputs', 'usage', 'checkpointFork', 'searchPrompts', 'searchKeywords', 'rename', 'archive', 'unarchive', 'delete'].some(key => caps[key] !== undefined && typeof caps[key] !== 'boolean')
             || caps.checkpointFork === true && caps.fork !== true
             || caps.commandQueries === true && caps.slashCommands !== true
             || caps.commandOutputs === true && caps.slashCommands !== true

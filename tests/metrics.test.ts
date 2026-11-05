@@ -1,7 +1,7 @@
 import {expect, it, vi} from 'vitest';
 import {validateSession} from '../src/harness/validation';
 import {observeContextMetrics, validateMetrics} from '../src/harness/metrics';
-import {MCPHarnessClient} from '../src/harness/client';
+import {CellsHarnessClient} from '../src/harness/client';
 import {HarnessConversation} from '../src/harness/conversation';
 import type {HarnessClient, HarnessProfile} from '../src/harness/contracts';
 const metrics = {observedAt: 1793440000000, contextWindow: {limitTokens: 200000, usedTokens: 10000},
@@ -20,12 +20,12 @@ it('keeps malformed optional session metrics from blocking native history and ex
 });
 it('negotiates read-only metrics and checks the returned session identity', async () => {
     const call = vi.fn(async (name: string) => name === 'harness_profiles' ? {epoch: 'e', profiles: [profile]} : {sessionId: 's', metrics});
-    const client = new MCPHarnessClient({call, close: vi.fn()});
+    const client = new CellsHarnessClient({call, close: vi.fn()});
     expect(await client.metrics('native', 's')).toEqual(metrics);
     expect(call).toHaveBeenLastCalledWith('harness_session_metrics', expect.objectContaining({profileId: 'native', sessionId: 's', requestId: expect.any(String)}), undefined);
     await expect(client.metrics('native', 'other')).rejects.toMatchObject({code: 'EIO'});
     const legacyCall = vi.fn(async () => ({epoch: 'e', profiles: [{...profile, capabilities: {...profile.capabilities, metrics: false}}]}));
-    const legacy = new MCPHarnessClient({call: legacyCall, close: vi.fn()});
+    const legacy = new CellsHarnessClient({call: legacyCall, close: vi.fn()});
     await expect(legacy.metrics('native', 's')).rejects.toMatchObject({code: 'ECAPABILITY'}); expect(legacyCall).toHaveBeenCalledOnce();
 });
 it('reads metrics without history, sending or consuming drafts and keeps failures local', async () => {

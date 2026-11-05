@@ -1,7 +1,7 @@
 import { requestId as createRequestId } from '../files/request-id';
 import { FSError, type OperationOptions } from '@nestos/vfs-core';
 import type { HarnessClient, HarnessMutationOptions, HarnessEvents, HarnessHistory, HarnessPage, HarnessReceipt, HarnessSession, HarnessHistoryOptions, HarnessEventsOptions } from './contracts';
-import { HarnessRpc } from './rpc';
+import { CellsRpc } from './rpc';
 import { HarnessEventFeed } from './event-feed';
 import {validateMetrics} from './metrics';
 import { validateUsage } from './usage';
@@ -14,7 +14,7 @@ import {decodeCommittedResult} from './committed-result';
 import {outputRange, validateCommandOutputRef, validateCommandOutputPage} from './command-output';
 
 /** Native task ownership lives on the gateway; this client never replays a mutation. */
-export class MCPHarnessClient implements HarnessClient {
+export class CellsHarnessClient implements HarnessClient {
     private checkpointProfiles: import('./contracts').HarnessProfile[] = [];
     async metrics(profileId: string, sessionId: string, options?: HarnessMutationOptions) {
         if (!this.checkpointProfiles.length) await this.profiles(options);
@@ -73,7 +73,14 @@ export class MCPHarnessClient implements HarnessClient {
     private directoryStop?: () => void;
     private readonly directoryListeners = new Set<() => void>();
     private readonly pathSubscriptions = new Set<() => void>();
-    constructor(private readonly rpc: HarnessRpc, private readonly scope: {projectId: string; revision: number; readOnly?: boolean; capabilities?: import('../authorization').RemoteProjectCapabilities} | undefined = undefined) {}
+    constructor(private readonly rpc: CellsRpc, private readonly scope: {projectId: string; revision: number; readOnly?: boolean; capabilities?: import('../authorization').RemoteProjectCapabilities} | undefined = undefined) {}
+    subscribeChannel(scopeId: string, listener: () => void): () => void {
+        if (!this.scope || !/^[A-Za-z0-9_-]{1,128}$/.test(scopeId)) throw new FSError('EINVAL', 'Invalid channel scope');
+        const notify = () => {try {listener();} catch {console.warn('[Cells] Channel observer failed', {code: 'EVENT_OBSERVER_FAILED'});}};
+        const stop = this.rpc.subscribe('projects', {...this.scope, channelId: scopeId}, {next: notify, error: notify});
+        this.pathSubscriptions.add(stop);
+        return () => {this.pathSubscriptions.delete(stop); stop();};
+    }
     subscribeDirectory(listener: () => void): () => void {
         this.directoryListeners.add(listener);
         if (this.scope && !this.directoryStop) this.directoryStop = this.rpc.subscribe('projects',{...this.scope},{next: value => {
@@ -97,7 +104,7 @@ export class MCPHarnessClient implements HarnessClient {
         this.pathSubscriptions.add(stop);
         void this.rpc.metadata?.().then(meta => {
             if (stopped) return;
-            if ((meta?.['itookit/cells'] as {directoryScopes?: boolean})?.directoryScopes !== true)
+            if ((meta as {directoryScopes?: boolean})?.directoryScopes !== true)
                 throw new FSError('ECAPABILITY', 'Scoped directory observation requires a newer node');
             unsubscribe = this.rpc.subscribe('projects', {...this.scope, directory}, {next: notify, error: () => {diagnose('DIRECTORY_SUBSCRIPTION_FAILED'); notify();}});
         }).catch(error => {if (!stopped) {diagnose(error instanceof FSError ? error.code : 'DIRECTORY_SUBSCRIPTION_FAILED'); notify();}});

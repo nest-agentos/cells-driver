@@ -3,7 +3,7 @@
 精确 turn 的已确认终态保存在原队列项 terminal 内，经既有 journal.save 持久化，重启可复用；不同 turn、未知提交与会话空闲本身不能解除队首屏障。inspect 的 lastTurnResult 必须与 lastTurnId 成对使用；空闲且队首缺终态时最多每 15 秒核对一次原生历史，无 inspect 能力也能核对。projection.reason 只解释等待条件，不改变执行准入。
 事件读取失败时，已接纳且缺终态的队首仍独立核对历史，复用 15 秒节流，不受缓存 active 阻止；保留事件故障及发送屏障，不自动重放。回归见 tests/terminal-observation.test.ts。
 
-平台无关的 cells 接入层。文件与进程实现位于 src/files，同步 HTTP 协议与 harness MCP 协议归本包。不得依赖旧 vfsdriver-agent 包。
+平台无关的 cells 接入层。文件与进程实现位于 src/files，同步 HTTP 协议与 Harness 固定 HTTP API 归本包；MCP 2.0 仅由 Cells 向 Agent 提供。不得依赖旧 vfsdriver-agent 包。
 不得依赖 app-core、UI 或宿主 API。连接配置与目录授权策略归 app-core；凭据解析与 fetch 由宿主注入。
 文件、同步与 harness 各自拥有生命周期。关闭控制面板只关闭客户端等待，不把连接断开当作 turn 已停止。
 修改操作携带 epoch 与 requestId；结果未知时查询 receipt，不自动重放。
@@ -47,7 +47,7 @@ capabilities.commandQueries 正向协商 harness_query；queryCommand/reconcileQ
 
 capabilities.commandOutputs 正向协商 command/operation 的 outputMode=reference，旧节点不带新字段。HarnessCommandOutputRef 固定 version/epoch/requestId/bytes/sha256/text/plain；readCommandOutput 使用相同项目授权和固定引用，严格校验范围、规范base64、进度与EOF；loadCommandOutput 默认8MiB、上限32MiB，完整读取校验字节数和SHA-256，取消及读取错误局部化，不改 refreshError 或发送资格。普通输出按UTF-8保留最多64KiB预览；旧节点超限正文保留真实接纳/终态并明确 outputError，不能声称完整产物可读。
 
-MCP 已确认 committed 后的解码错误保留 committed，原始回执只在模块私有 WeakMap 暂存，不进入异常属性、恢复记录、日志或广播。command ID/终态封套无效时，在原 commandResults 保存固定 operationId/epoch/resultError，submission 仍为 accepted；清理传输 pending 但保留派发屏障，允许查询和继续入队，禁止 retry 生成新 attempt 重放。原ID/epoch只读核对可修复，不消费后来草稿。最近64项窗口仅淘汰已收尾的展示项，不淘汰 resultError 或 running；查询压力和重开不能解除屏障。
+固定 API 已确认 committed 后的解码错误保留 committed，原始回执只在模块私有 WeakMap 暂存，不进入异常属性、恢复记录、日志或广播。command ID/终态封套无效时，在原 commandResults 保存固定 operationId/epoch/resultError，submission 仍为 accepted；清理传输 pending 但保留派发屏障，允许查询和继续入队，禁止 retry 生成新 attempt 重放。原ID/epoch只读核对可修复，不消费后来草稿。最近64项窗口仅淘汰已收尾的展示项，不淘汰 resultError 或 running；查询压力和重开不能解除屏障。
 
 native command 历史及事件以同 commandId 的稳定锚点合并；原生正文回显不能覆盖已固定预览/输出引用，迟到无ref或不同ref的更新不能替换原不可变产物。真实同ID终态可结束 running，但不能用其他命令或文字相同推断完成。command/turn结果ID在解码和队列恢复统一为最多1024字符。
 

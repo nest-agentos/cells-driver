@@ -1,6 +1,6 @@
 import { FSError, checkOperation, operationScope, type OperationOptions } from '@nestos/vfs-core';
 import type { HarnessEvents } from './contracts';
-import type { HarnessRpc } from './rpc';
+import type { CellsRpc } from './rpc';
 import { validateEvents } from './validation';
 import { requestId } from '../files/request-id';
 
@@ -12,7 +12,7 @@ export class HarnessEventFeed {
     private readonly listeners = new Set<() => void>();
     private readonly waiters = new Set<() => void>();
     private readonly stop: () => void;
-    constructor(rpc: HarnessRpc, args: Record<string, unknown>) {
+    constructor(rpc: CellsRpc, args: Record<string, unknown>) {
         this.stop = rpc.subscribe('harness', args, {next: value => this.accept(validateEvents(value)), error: error => {
             this.failure = error; this.notify();
         }});

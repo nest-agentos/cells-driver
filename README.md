@@ -2,7 +2,7 @@
 
 连接 [cells](https://github.com/nest-agentos/cells) 的平台无关客户端。cells 寓意蜂房中的单个巢室，是将信息与 Agent 集成到 NestOS 的单个智能节点；本包统一封装文件访问、项目管理、同步、进程与原生 AI harness 会话。源码仓库：[cells-driver](https://github.com/nest-agentos/cells-driver)。
 
-Web、Tauri、CLI 创建 `createCellsDriver()`，共用连接和运行期凭据。原 vfsdriver-agent 的文件与进程实现已并入 `src/files`，保留 revision、条件写入、流传输与隔离语义，发布包不再依赖旧驱动。HTTP 同步客户端通过 `/sync` 导出；harness 通过 `/harness` 导出并使用 MCP SDK 2.0.0、协议 2026-07-28。Codex app-server 和 Claude Code SDK 的原生协议留在服务端。
+Web、Tauri、CLI 创建 `createCellsDriver()`，共用连接和运行期凭据。原 vfsdriver-agent 的文件与进程实现已并入 `src/files`，保留 revision、条件写入、流传输与隔离语义，发布包不再依赖旧驱动。HTTP 同步客户端通过 `/sync` 导出；harness 通过 `/harness` 导出并使用固定 Cells HTTP API。Codex app-server 和 Claude Code SDK 的原生协议留在服务端。
 
 ```sh
 pnpm add @nestos/cells-driver
@@ -31,9 +31,9 @@ await adapter.dispose();
 
 当前支持 Codex 与 Claude Code 的会话分页、历史、新建、继续、消息、增量输出、中断、命令/文件审批和用户问题；Codex 另外声明分支、重命名和归档能力。其他 harness 通过服务端 HarnessPlugin/HarnessDriver 扩展，不改变宿主连接入口。配置和使用见 [cells README](https://github.com/nest-agentos/cells#readme)。
 
-验证：`pnpm --filter @nestos/cells-driver test`、`typecheck`；`CELLS_HARNESS_TEST=1 pnpm --filter @nestos/cells-driver test tests/network.test.ts` 启动本地 Rust 服务和模拟 Codex，验证真实 MCP 网络链路，不调用模型。
+验证：`pnpm --filter @nestos/cells-driver test`、`typecheck`；`CELLS_HARNESS_TEST=1 pnpm --filter @nestos/cells-driver test tests/network.test.ts` 启动本地 Rust 服务和模拟 Codex，验证真实固定 HTTP API 链路，不调用模型。
 
-客户端配置入口统一为“工具箱 → MCP”。通用管理器完成标准发现后，由 app-core 注册的 cells 扩展验证 `server/discover._meta['itookit/cells']`，获得同源文件 HTTP 端点、fileProtocol、serverId 和 harness 能力；旧服务只调用已声明的能力工具，普通 MCP 不发专用探测。测试、保存和改名复用验证结果，连接身份变化重新验证。原服务根地址只作为发现结果供文件/同步访问，用户填写完整 `/mcp` 地址。认证解析器也注入通用 MCP 客户端，每次请求读取当前凭据；API Key 使用 MCP 配置存储，项目只保存引用。
+客户端配置入口为“设置 → Cells”，支持多个节点。NestOS 使用固定 HTTP API 发现节点能力并管理项目、Harness 和回执，不进行 MCP 发现。Agent 的 MCP 2.0 通道由 Cells 单独提供。节点与普通 MCP 配置独立，不提供迁移或兼容别名。
 
 driver 独立使用 `discover()` 时也优先消费 SDK 已连接的标准发现元数据，避免额外能力调用；无元数据时调用 cells_capabilities，失败直接返回具体原因。元数据不合法时拒绝，不绕过校验。
 
@@ -133,7 +133,7 @@ Codex profile 声明 rename/archive/unarchive 与 attachments 能力。`harness.
 
 A connection can explicitly set `anonymous: true` to access public read-only exports. The driver omits Authorization and never resolves a credential in this mode; a failed authenticated request never falls back to anonymous access. Authenticated connections continue using Bearer or Basic credentials supplied by the host.
 
-Discovery exposes an optional `authorization` snapshot (`principalId`, `anonymous`, `revision`). Pass it on the connection to fence subsequent HTTP and MCP requests to the same identity and grant revision. Source pooling includes this snapshot and anonymous mode. A changed grant requires explicit discovery and refreshing the binding; it cannot silently reuse another user's view. The pure `@nestos/cells-driver/authorization` entry validates snapshots without loading the MCP runtime.
+Discovery exposes an optional `authorization` snapshot (`principalId`, `anonymous`, `revision`). Pass it on the connection to fence subsequent HTTP requests to the same identity and grant revision. Source pooling includes this snapshot and anonymous mode. A changed grant requires explicit discovery and refreshing the binding; it cannot silently reuse another user's view. The pure `@nestos/cells-driver/authorization` entry validates snapshots without loading the transport runtime.
 
 Projects expose optional effective capabilities for file reads/writes, execution and session control. A read-only file mount can permit native conversation control when the server grants execution separately. Servers without these fields retain the host's conservative legacy behavior. The driver implements transport and validation; directory ACL policy and user-to-credential binding belong to the server and host respectively.
 
@@ -240,3 +240,5 @@ Codex rollout 的终态可能以仅含 id/status、items 为空的轮次返回�
 恢复不产生 completed/cancelled，不重发旧输入、不清除后续草稿；后续队列暂停，用户检查已有修改后发送新的继续指令。重新发送沿既有 inspect/resume 接回同一原生 Session。正常 interrupt 只针对单个 session/turn；当前共享 Codex app-server 的强杀会影响同一执行器的其他会话，本接口不将其包装为单会话重启。
 
 Project clients expose `executionSettings(project)` and `setExecution(project, {profile, variables})`. These negotiate `projectExecutionEnvironment` before calling the new node protocol. Profile summaries contain only ID, name and execution username; environment sources and mounts stay on the node. Updates use the original project revision and never automatically retry a mutation.
+
+NestOS node operations use the fixed Cells HTTP API (`/v1/capabilities`, `/v1/api/harness/*`, `/v1/api/projects/*`), independent of MCP initialization. Agent-facing scoped MCP 2.0 is provided by Cells separately. The exported clients are `CellsHarnessClient` and `CellsProjectClient`; no MCP transport aliases are provided.

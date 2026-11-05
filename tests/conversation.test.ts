@@ -1,6 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import { HarnessConversation } from '../src/harness/conversation';
-import { MCPHarnessClient } from '../src/harness/client';
+import { CellsHarnessClient } from '../src/harness/client';
 import type { HarnessClient, HarnessProfile } from '../src/harness/contracts';
 import type { HarnessRecovery } from '../src/harness/conversation-journal';
 import { historyMessages, mergeMessages } from '../src/harness/conversation-model';
@@ -362,7 +362,7 @@ it('queues native commands through the command protocol and retries only a defin
 it.each(['retry', 'resume'] as const)('restores a preparation-rejected EIO queue entry and starts a new attempt only after explicit %s', async action => {
     const client = peer(); let saved: HarnessRecovery | undefined; const attempts: string[] = [];
     const capable = {...profile, capabilities: {...profile.capabilities, slashCommands: true}};
-    const native = new MCPHarnessClient({close: vi.fn(), call: async (name, args) => {
+    const native = new CellsHarnessClient({close: vi.fn(), call: async (name, args) => {
         if (name === 'harness_profiles') return {epoch: 'e', profiles: [capable]};
         const id = (args as {requestId: string}).requestId; attempts.push(id);
         return attempts.length === 1 ? {requestId: id, outcome: 'not-committed', code: 'EIO', stage: 'prepare', executionStarted: false}
