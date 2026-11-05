@@ -16,6 +16,7 @@ export interface RemoteProject {
 export interface RegisterProject { id?: string; name: string; alias: string; path: string; access: 'ro' | 'rw'; mounts?: ProjectMount[]; createDirectory?: boolean }
 export interface ProjectProcess { state: string; stdout: string; stderr: string; code: number | null; error: string | null; truncated: boolean }
 export interface ProjectClient {
+    clientState?(project:RemoteProject,input:{key:string;action:"read"|"compare";expected?:string|null;value?:string|null;requestId?:string},options?:OperationOptions):Promise<{value?:string|null;applied?:boolean}>;
     channel?(project: RemoteProject, operation: 'open' | 'messages' | 'close' | 'requests' | 'respond' | 'current' | 'acknowledge', input: Record<string, unknown>, options?: OperationOptions): Promise<unknown>;
     executionSettings?(project: RemoteProject, options?: OperationOptions): Promise<ProjectExecutionSettings>;
     setExecution?(project: RemoteProject, execution: ProjectEnvironment, options?: OperationOptions): Promise<RemoteProject>;
@@ -37,6 +38,13 @@ export class CellsProjectClient implements ProjectClient {
         return this.rpc.call('project_channel_' + operation, {...input, projectId: project.id, revision: project.revision}, options);
     }
     constructor(private readonly rpc: CellsRpc) {}
+    async clientState(project:RemoteProject,input:{key:string;action:'read'|'compare';expected?:string|null;value?:string|null;requestId?:string},options?:OperationOptions):Promise<{value?:string|null;applied?:boolean}> {
+        const meta=await this.rpc.metadata?.(options) as {projectClientState?:number}|undefined;
+        if(meta?.projectClientState!==1)throw new FSError('ECAPABILITY','Remote harness client state requires an updated Cells node');
+        const value=await this.rpc.call('project_client_state',{projectId:project.id,revision:project.revision,...input},options) as {value?:string|null;applied?:boolean};
+        if(!value||input.action==='read'&&value.value!==null&&typeof value.value!=='string'||input.action==='compare'&&typeof value.applied!=='boolean')throw new FSError('EIO','Invalid remote client state');
+        return value;
+    }
     async executionSettings(project: RemoteProject, options?: OperationOptions): Promise<ProjectExecutionSettings> {
         const meta = await this.rpc.metadata?.(options);
         const capability = meta as {projectExecutionEnvironment?: boolean} | undefined;
