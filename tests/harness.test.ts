@@ -251,3 +251,9 @@ it('negotiates steering and validates its exact receipt without sending to legac
     call.mockImplementation(async (_name, args) => ({requestId: args.requestId, outcome: 'committed', result: {turnId: 'wrong'}}));
     await expect(client.steer('codex', 's', 'active', 'Context', {requestId: 'mismatch'})).rejects.toMatchObject({outcome: 'committed'});
 });
+it('preserves a durable native context mapping independently of the process epoch', () => {
+    const profile={id:'native',kind:'generic',contextId:'fixed-context',workspaces:[],capabilities:{history:true,create:true,resume:true,interrupt:true,interactions:true}};
+    expect(validateProfiles({epoch:'first-process',profiles:[profile]}).profiles[0].contextId).toBe('fixed-context');
+    expect(validateProfiles({epoch:'next-process',profiles:[profile]}).profiles[0].contextId).toBe('fixed-context');
+    for(const contextId of ['',42])expect(()=>validateProfiles({epoch:'process',profiles:[{...profile,contextId}]})).toThrow();
+});

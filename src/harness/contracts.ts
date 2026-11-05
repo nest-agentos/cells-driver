@@ -4,6 +4,8 @@ import type { HarnessUsage } from './usage';
 export interface HarnessProfile {
     // Optional working-directory selection remains within the authorized project.
     aliases?: string[];
+    /** Durable namespace for native Session identities; independent of process epochs. */
+    contextId?: string;
     projectCapabilities?: import('../authorization').RemoteProjectCapabilities;
     id: string; kind: string; projectRuntime?: boolean; workspaces: Array<{ id: string }>;
     capabilities: { sessionChannels?: boolean; workingDirectory?: boolean; executionRecovery?: boolean; sessionDigest?: boolean; metrics?: boolean; models?: boolean; slashCommands?: boolean; commandQueries?: boolean; commandOutputs?: boolean; usage?: boolean; history: boolean; create: boolean; resume: boolean; interrupt: boolean; steer?: boolean; interactions: boolean; fork?: boolean; checkpointFork?: boolean; search?: boolean; searchPrompts?: boolean; searchKeywords?: boolean; rename?: boolean; archive?: boolean; unarchive?: boolean; delete?: boolean; attachments?: Array<'text' | 'image'> };
