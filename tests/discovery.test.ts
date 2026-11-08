@@ -31,3 +31,14 @@ it('aborts pending discovery transport when the driver closes',async()=>{
     await vi.waitFor(()=>expect(fetch).toHaveBeenCalledOnce());
     await driver.dispose();await rejected;expect(aborted).toBe(true);
 });
+
+it('tests draft credentials without replacing the saved credential',async()=>{
+    const fetch=vi.fn<typeof globalThis.fetch>(async()=>Response.json({node:descriptor}));
+    const driver=createCellsDriver(()=> 'saved-secret',fetch);
+    try {
+        await driver.discoverDraft({endpoint:'https://cells.test',credentialRef:'live'},'draft-secret');
+        await driver.discover({endpoint:'https://cells.test',credentialRef:'live'});
+        expect(new Headers(fetch.mock.calls[0][1]?.headers).get('authorization')).toBe('Bearer draft-secret');
+        expect(new Headers(fetch.mock.calls[1][1]?.headers).get('authorization')).toBe('Bearer saved-secret');
+    }finally{await driver.dispose();}
+});

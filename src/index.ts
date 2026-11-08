@@ -1,5 +1,6 @@
 export type {HarnessTurnSubmissionEvidence} from './harness/contracts';
 export { createCellsDriver } from './provider';
+export type {CellsNodeStatus} from './node-status';
 export type { RemoteAuthorization, RemoteProjectCapabilities } from './authorization';
 export { validateAuthorization } from './authorization';
 export type { CellsDriver, CellsDescriptor } from './provider';

@@ -282,7 +282,7 @@ export class HarnessConversation implements HarnessConversationPort {
         this.controls = new HarnessControlLedger({
             before: async () => {
                 await this.instructions.synchronize();
-                return this.journal?.epoch ?? (await this.client.profiles(this.options())).epoch;
+                return (await this.client.profiles(this.options())).epoch;
             },
             call: row => this.client.interrupt(this.profile.id, row.sessionId, row.turnId, {...this.options(), epoch: row.epoch, requestId: row.requestId}),
             query: row => this.client.operation(this.profile.id, row.requestId, {...this.options(), epoch: row.epoch}),
@@ -532,7 +532,7 @@ export class HarnessConversation implements HarnessConversationPort {
     }
     private async native<T>(operation: string, call: (options: import('./contracts').HarnessMutationOptions) => Promise<T>,
         submission?: {inputText: string; draftRevision: number; consumeDraft?: false; turnId?: string}, committed?: (result: T) => void, forkCheckpoint?: ForkCheckpoint): Promise<T> {
-        const epoch = this.journal?.epoch ?? (await this.client.profiles(this.options())).epoch;
+        const epoch = (await this.client.profiles(this.options())).epoch;
         const requestId = ['turn', 'steer', 'command'].includes(operation) && this.submission?.status === 'pending' ? this.submission.id : createRequestId();
         this.pending = {requestId, epoch, operation, ...submission, ...(forkCheckpoint ? {forkCheckpoint} : {})};
         const started = Date.now(); let stage = 'persist-intent', failure: unknown;
@@ -925,7 +925,7 @@ export class HarnessConversation implements HarnessConversationPort {
         const request = this.requests.find(r => r.id === id && r.kind !== 'unsupported');
         if (this.lifetime.signal.aborted || !this.writable || this.pending?.operation === 'respond' || !this.session?.owned || !this.profile.capabilities.interactions || !request || this.responses.some(p => p.id === id))
             throw new FSError('EACCES', 'Interaction no longer pending or not owned');
-        const epoch = this.journal?.epoch ?? (await this.client.profiles(this.options())).epoch;
+        const epoch = (await this.client.profiles(this.options())).epoch;
         if (this.responses.some(p => p.id === id)) throw new FSError('EBUSY', 'Response already pending');
         const pending = {id, epoch, requestId: createRequestId()};
         this.responses.push(pending); this.responseBusy.add(pending.requestId);

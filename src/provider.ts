@@ -12,14 +12,17 @@ import type { HarnessConversationJournal } from './harness/conversation-journal'
 import { HarnessConversation, type HarnessConversationPort } from './harness/conversation';
 import { HarnessStatusObserver, type HarnessStatusPort } from './harness/status-observer';
 import { NodeEventHub } from './events';
+import {readNodeStatus, type CellsNodeStatus} from './node-status';
 
 type Connection = Omit<RemoteConnection, 'alias'>;
 export interface CellsDescriptor { authorization?: RemoteAuthorization; version: 1; httpEndpoint: string; serverId: string | null; fileProtocol: 'fs-agent-http-v1'; harness: boolean; projects?: boolean; sync?: boolean; projectProtocol?: string; directorySync?: boolean; directorySyncVersion?: number; fileSearch?: boolean; directoryEvents?: boolean; events?: {version:1;transport:'sse';endpoint:'/v1/events'}; }
 export interface CellsDriver extends HttpSourceProvider {
+    nodeStatus(connection:Connection,options?:import('@nestos/vfs-core').OperationOptions):Promise<CellsNodeStatus>;
     observeHarness(client: HarnessClient, writable?: boolean, options?: {watchFiles?: boolean}): HarnessStatusPort;
     open(connection: RemoteConnection & {serverProjectId?: string; serverProjectRevision?: number; access?: 'ro' | 'rw'}, options?: import('@nestos/vfs-core').OperationOptions): ReturnType<HttpSourceProvider['open']>;
     resolveCredential(reference: string): Promise<string>;
     discover(connection: Connection, options?: import('@nestos/vfs-core').OperationOptions): Promise<CellsDescriptor>;
+    discoverDraft(connection: Connection,password:string,options?:import('@nestos/vfs-core').OperationOptions):Promise<CellsDescriptor>;
     conversation(client: HarnessClient, profile: HarnessProfile, workspaceId: string, sessionId?: string, writable?: boolean, journal?: HarnessConversationJournal): HarnessConversationPort;
     harness(connection: Connection): HarnessClient;
     projects(connection: Connection): ProjectClient;
@@ -30,6 +33,7 @@ export interface CellsDriver extends HttpSourceProvider {
 /** A single credential owner; file, sync and harness clients retain independent lifetimes. */
 export function createCellsDriver(resolveCredential?: (reference: string) => string | Promise<string>, fetch = globalThis.fetch): CellsDriver {
     const secrets = new Map<string, string>();
+    const statusLifetime = new AbortController();
     const eventHubs = new Map<string, NodeEventHub>();
     const eventHub = (connection: Connection): NodeEventHub => {
         const endpoint = new URL(connection.endpoint.endsWith('/') ? connection.endpoint : connection.endpoint+'/');
@@ -49,24 +53,13 @@ export function createCellsDriver(resolveCredential?: (reference: string) => str
     const processes = new Set<{release(): Promise<void>}>();
     const projectFiles = new Set<FileSystemSourceOwner>();
     return Object.assign(files, {
+        nodeStatus:(connection:Connection,options?:import('@nestos/vfs-core').OperationOptions)=>readNodeStatus(connection,credential,fetch,{...options,signal:options?.signal?AbortSignal.any([options.signal,statusLifetime.signal]):statusLifetime.signal}),
         resolveCredential: credential,
         observeHarness: (client: HarnessClient, writable = true, options?: {watchFiles?: boolean}) => new HarnessStatusObserver(client, Date.now, writable, options?.watchFiles ?? true),
         conversation: (client: HarnessClient, profile: HarnessProfile, workspaceId: string, sessionId?: string, writable?: boolean, journal?: HarnessConversationJournal) => new HarnessConversation(client, profile, workspaceId, sessionId, writable, journal),
-        async discover(connection: Connection, options?: import('@nestos/vfs-core').OperationOptions): Promise<CellsDescriptor> {
-            const rpc = createCellsRpc(connection.endpoint, authenticatedFetch(connection, credential, fetch));
-            clients.add(rpc);
-            try {
-                const value = await discoverCapabilities(rpc,options);
-                if (value?.version !== 1 || value.fileProtocol !== 'fs-agent-http-v1' || typeof value.harness !== 'boolean' || typeof value.httpEndpoint !== 'string'
-                    || !(value.serverId === null || typeof value.serverId === 'string')) throw new FSError('ECAPABILITY', 'Invalid cells discovery');
-                const base = new URL(connection.endpoint.replace(/\/$/, '') + '/'), http = new URL(value.httpEndpoint, base);
-                if (http.origin !== base.origin || http.username || http.password || http.search || http.hash) throw new FSError('EACCES', 'Invalid cells HTTP endpoint');
-                const authorization = validateAuthorization(value.authorization);
-                if (authorization && authorization.anonymous !== !!connection.anonymous)
-                    throw new FSError('EACCES', 'Remote authentication mode changed');
-                return { ...value, authorization, httpEndpoint: http.href.replace(/\/+$/, '') };
-            } finally { clients.delete(rpc); await rpc.close(); }
-        },
+        discover: (connection:Connection,options?:import('@nestos/vfs-core').OperationOptions)=>discoverNode(connection,credential,fetch,clients,options),
+        discoverDraft: (connection:Connection,password:string,options?:import('@nestos/vfs-core').OperationOptions)=>
+            discoverNode(connection,password?async()=>password:credential,fetch,clients,options),
         setCredential(ref: string, value: string) {
             const previous = secrets.get(ref); secrets.set(ref, value);
             for (const hub of eventHubs.values()) hub.reconnect();
@@ -116,6 +109,7 @@ export function createCellsDriver(resolveCredential?: (reference: string) => str
         },
         sync(connection: Connection, historyEpoch: string) { return new HttpSyncClient(files.transport(connection), historyEpoch); },
         async dispose() {
+            statusLifetime.abort();
             const results = await Promise.allSettled([...processes].map(p => p.release()));
             results.push(...await Promise.allSettled([...clients].map(c => c.close())));
             results.push(...await Promise.allSettled([...projectFiles].map(owner => owner.dispose())));
@@ -162,4 +156,20 @@ function boundedResponse(response: Response): Response {
         },
     }));
     return new Response(stream,{ status:response.status,statusText:response.statusText,headers:response.headers });
+}
+
+async function discoverNode(connection:Connection,credential:(ref:string)=>Promise<string>,fetch:typeof globalThis.fetch,clients:Set<{close():Promise<void>}>,options?:import('@nestos/vfs-core').OperationOptions):Promise<CellsDescriptor> {
+            const rpc = createCellsRpc(connection.endpoint, authenticatedFetch(connection, credential, fetch));
+            clients.add(rpc);
+            try {
+                const value = await discoverCapabilities(rpc,options);
+                if (value?.version !== 1 || value.fileProtocol !== 'fs-agent-http-v1' || typeof value.harness !== 'boolean' || typeof value.httpEndpoint !== 'string'
+                    || !(value.serverId === null || typeof value.serverId === 'string')) throw new FSError('ECAPABILITY', 'Invalid cells discovery');
+                const base = new URL(connection.endpoint.replace(/\/$/, '') + '/'), http = new URL(value.httpEndpoint, base);
+                if (http.origin !== base.origin || http.username || http.password || http.search || http.hash) throw new FSError('EACCES', 'Invalid cells HTTP endpoint');
+                const authorization = validateAuthorization(value.authorization);
+                if (authorization && authorization.anonymous !== !!connection.anonymous)
+                    throw new FSError('EACCES', 'Remote authentication mode changed');
+                return { ...value, authorization, httpEndpoint: http.href.replace(/\/+$/, '') };
+            } finally { clients.delete(rpc); await rpc.close(); }
 }

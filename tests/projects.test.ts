@@ -1,6 +1,15 @@
 import { expect, it, vi } from 'vitest';
 import { CellsProjectClient } from '../src/projects';
 const project = {id:'p',name:'Notes',alias:'home',path:'group/notes',access:'rw' as const,revision:2,mounts:[]};
+it.each([undefined,1])('negotiates relative channel paths while keeping older nodes compatible (%s)',async version=>{
+    const call=vi.fn(async()=>({accepted:true}));
+    const client=new CellsProjectClient({call,metadata:async()=>({projectChannelPaths:version}),close:vi.fn()});
+    for(const operation of ['open','current'] as const) {
+        await client.channel(project,operation,{cwd:'_nestos/work',scopeId:'scope'});
+        expect(call).toHaveBeenLastCalledWith('project_channel_'+operation,
+            expect.objectContaining({cwd:version===1?'_nestos/work':'/projects/p/_nestos/work',projectId:'p',revision:2}),undefined);
+    }
+});
 it('shares the project revision with harness operations and restricts available workspaces',async () => {
     const call=vi.fn(async (name: string,args: Record<string,unknown>) => {
         if (name==='harness_profiles') return {epoch:'e',profiles:[

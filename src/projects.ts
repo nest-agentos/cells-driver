@@ -34,8 +34,14 @@ export interface ProjectClient {
     close(): Promise<void>;
 }
 export class CellsProjectClient implements ProjectClient {
-    channel(project: RemoteProject, operation: 'open' | 'messages' | 'close' | 'requests' | 'respond' | 'current' | 'acknowledge', input: Record<string, unknown>, options?: OperationOptions): Promise<unknown> {
-        return this.rpc.call('project_channel_' + operation, {...input, projectId: project.id, revision: project.revision}, options);
+    async channel(project: RemoteProject, operation: 'open' | 'messages' | 'close' | 'requests' | 'respond' | 'current' | 'acknowledge', input: Record<string, unknown>, options?: OperationOptions): Promise<unknown> {
+        let request = input;
+        if (operation === 'open' || operation === 'current') {
+            const meta = await this.rpc.metadata?.(options) as {projectChannelPaths?: number} | undefined;
+            if (meta?.projectChannelPaths !== 1 && typeof input.cwd === 'string' && !input.cwd.startsWith('/'))
+                request = {...input, cwd: `/projects/${project.id}/${input.cwd}`};
+        }
+        return this.rpc.call('project_channel_' + operation, {...request, projectId: project.id, revision: project.revision}, options);
     }
     constructor(private readonly rpc: CellsRpc) {}
     async clientState(project:RemoteProject,input:{key:string;action:'read'|'compare';expected?:string|null;value?:string|null;requestId?:string},options?:OperationOptions):Promise<{value?:string|null;applied?:boolean}> {

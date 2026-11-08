@@ -517,6 +517,7 @@ it('repairs an event gap from native history without appending already recorded 
 });
 it('persists mutation identity before creation and blocks replay after reopening an unknown result', async () => {
     const client = peer(); let record: HarnessRecovery | undefined;
+    vi.mocked(client.profiles).mockResolvedValue({epoch: 'original', profiles: [profile]});
     const journal = {epoch:'original', load:async () => record, save:async (value: HarnessRecovery) => {record=structuredClone(value);}};
     vi.mocked(client.create).mockImplementation(async (_p,_w,options) => {
         expect(record?.pending?.requestId).toBe(options?.requestId);
@@ -525,12 +526,26 @@ it('persists mutation identity before creation and blocks replay after reopening
     const first = new HarnessConversation(client, profile, 'p', undefined, true, journal);
     await expect(first.send('task')).rejects.toMatchObject({outcome:'unknown'});
     expect(first.snapshot().pending).toBe(true); expect(record?.draft).toBe('task'); await first.close();
+    vi.mocked(client.profiles).mockResolvedValue({epoch: 'replacement', profiles: [profile]});
     const next = new HarnessConversation(client, profile, 'p', undefined, true, {...journal,epoch:'replacement'});
     await next.read(); await expect(next.send('task')).rejects.toMatchObject({code:'EBUSY'});
     expect(client.create).toHaveBeenCalledOnce();
     vi.mocked(client.operation).mockResolvedValue({outcome:'committed',requestId:record!.pending!.requestId,result:{session}});
     const confirmed = await next.reconcile(); expect(confirmed.sessionId).toBe('s'); expect(confirmed.pending).toBe(false);
     expect(client.operation).toHaveBeenCalledWith('codex',expect.any(String),expect.objectContaining({epoch:'original'}));
+});
+it('uses the current node epoch for new work on an already open conversation after a restart', async () => {
+    const client = peer(); let record: HarnessRecovery | undefined;
+    const journal = {epoch:'stale', load:async()=>record, save:async(value:HarnessRecovery)=>{record=structuredClone(value);}};
+    const view = new HarnessConversation(client,profile,'p','s',true,journal); await view.read();
+    vi.mocked(client.read).mockResolvedValue({session:{...session,owned:false},turns:[]});
+    await view.read();
+    vi.mocked(client.profiles).mockResolvedValue({epoch:'restarted',profiles:[profile]});
+    await view.send('New explicit submission');
+    expect(client.resume).toHaveBeenCalledWith('codex','s',expect.objectContaining({epoch:'restarted'}));
+    expect(client.turn).toHaveBeenCalledWith('codex','s','New explicit submission',expect.objectContaining({epoch:'restarted'}));
+    expect(client.operation).not.toHaveBeenCalled();
+    await view.close();
 });
 it('keeps a successfully committed turn accepted when its history refresh fails', async () => {
     const client = peer(), view = new HarnessConversation(client, profile, 'p', 's'); await view.read();
