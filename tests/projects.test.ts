@@ -78,3 +78,13 @@ it('does not send directory remounts to older nodes',async()=>{
     await expect(client.remount(project,'rw',undefined,{alias:'broader',path:'group/notes'})).rejects.toMatchObject({code:'ECAPABILITY'});
     expect(call).not.toHaveBeenCalled();
 });
+
+it('leaves MCP endpoint resolution to current Cells nodes while retaining legacy compatibility',async()=>{
+ const input={cwd:'_nestos/work',scopeId:'scope',endpoint:'http://host-forwarded:18787/v1/channel/mcp'};
+ for(const version of [undefined,1]){
+  const call=vi.fn(async()=>({accepted:true}));const client=new CellsProjectClient({call,metadata:async()=>({projectChannelPaths:1,projectChannelEndpoint:version}),close:vi.fn()});
+  await client.channel(project,'open',input);const sent=call.mock.calls[0] as any;
+  if(version===1)expect(sent[1]).not.toHaveProperty('endpoint');else expect(sent[1].endpoint).toBe(input.endpoint);
+ }
+ expect(input.endpoint).toBe('http://host-forwarded:18787/v1/channel/mcp');
+});

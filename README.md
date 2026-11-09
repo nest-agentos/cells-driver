@@ -260,3 +260,5 @@ Client journals retain drafts and client operation metadata; native queue bodies
 ### Recovering a project after export changes
 
 Nodes advertising `projectRemountPaths: 1` support `client.binding(projectId)` even when the old export is unavailable. This owner-only metadata query does not authorize file or execution access. Use its current revision with `client.remount(binding, access, options, {alias, path})`; the new export and relative directory must identify the original pinned directory. IDs, native history, channel records and client state remain under the same project. Older nodes reject these calls before dispatch; access-only `remount(project, access, options)` remains compatible. A lost response must be reconciled by reading binding metadata before an explicit retry.
+
+节点声明 `projectChannelEndpoint: 1` 时，项目通道请求不再发送调用方 endpoint；内部 MCP 地址由 Cells 自身监听和恢复生命周期决定。旧节点继续使用调用方提供的兼容地址，路径与项目修订校验不变。

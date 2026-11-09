@@ -1,6 +1,6 @@
 {
   "name": "@nestos/cells-driver",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "Platform-independent driver for cells, the intelligent nodes integrating information and agents into NestOS.",
   "type": "module",
   "main": "./src/index.ts",

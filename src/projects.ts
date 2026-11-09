@@ -42,10 +42,11 @@ export class CellsProjectClient implements ProjectClient {
     async channel(project: RemoteProject, operation: 'open' | 'messages' | 'close' | 'requests' | 'respond' | 'current' | 'acknowledge', input: Record<string, unknown>, options?: OperationOptions): Promise<unknown> {
         let request = input;
         if (operation === 'open' || operation === 'current') {
-            const meta = await this.rpc.metadata?.(options) as {projectChannelPaths?: number;projectContexts?:number} | undefined;
+            const meta = await this.rpc.metadata?.(options) as {projectChannelEndpoint?:number;projectChannelPaths?: number;projectContexts?:number} | undefined;
+            if(meta?.projectChannelEndpoint===1){request={...request};delete request.endpoint;}
             if(input.contextProjects!==undefined&&meta?.projectContexts!==1)throw Object.assign(new FSError('ECAPABILITY','Cell project contexts require a newer server'),{remoteCode:'CELL_PROJECT_CONTEXT_REQUIRED'});
             if (meta?.projectChannelPaths !== 1 && typeof input.cwd === 'string' && !input.cwd.startsWith('/'))
-                request = {...input, cwd: `/projects/${project.id}/${input.cwd}`};
+                request = {...request, cwd: `/projects/${project.id}/${input.cwd}`};
         }
         return this.rpc.call('project_channel_' + operation, {...request, projectId: project.id, revision: project.revision}, options);
     }
