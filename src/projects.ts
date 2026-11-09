@@ -30,7 +30,8 @@ export interface ProjectClient {
     read(id: string, options?: OperationOptions): Promise<RemoteProject>;
     register(input: RegisterProject, options?: OperationOptions): Promise<RemoteProject>;
     configure(project: RemoteProject, name: string, mounts: ProjectMount[], options?: OperationOptions): Promise<RemoteProject>;
-    remount?(project: RemoteProject, access: 'ro' | 'rw', options?: OperationOptions): Promise<RemoteProject>;
+    binding?(id: string, options?: OperationOptions): Promise<RemoteProject>;
+    remount?(project: RemoteProject, access: 'ro' | 'rw', options?: OperationOptions, directory?: {alias:string;path:string}): Promise<RemoteProject>;
     forget(project: RemoteProject, options?: OperationOptions): Promise<void>;
     exec(project: RemoteProject, input: {command: string; args: string[]; cwd?: string; timeoutMs?: number; readOnly?: boolean; epoch: string; requestId: string}, options?: OperationOptions): Promise<ProjectProcess>;
     harness(project: RemoteProject, options?: {readOnly?: boolean}): HarnessClient;
@@ -114,8 +115,17 @@ export class CellsProjectClient implements ProjectClient {
     configure(project: RemoteProject, name: string, mounts: ProjectMount[], options?: OperationOptions) {
         return this.project('project_configure',{projectId:project.id,revision:project.revision,name,mounts},options);
     }
-    remount(project: RemoteProject, access: 'ro' | 'rw', options?: OperationOptions) {
-        return this.project('project_remount', {projectId: project.id, revision: project.revision, access}, options);
+    async binding(id: string, options?: OperationOptions): Promise<RemoteProject> {
+        await this.requireRemountPaths(options);
+        return this.project('project_binding',{projectId:id},options);
+    }
+    async remount(project: RemoteProject, access: 'ro' | 'rw', options?: OperationOptions, directory?: {alias:string;path:string}) {
+        if(directory)await this.requireRemountPaths(options);
+        return this.project('project_remount', {projectId: project.id, revision: project.revision, access,...(directory?{directory}:{})}, options);
+    }
+    private async requireRemountPaths(options?:OperationOptions):Promise<void> {
+        if((await this.rpc.metadata?.(options))?.projectRemountPaths!==1)
+            throw Object.assign(new FSError('ECAPABILITY','Directory rebinding requires an updated Cells node'),{remoteCode:'PROJECT_REBIND_UNSUPPORTED'});
     }
     async forget(project: RemoteProject, options?: OperationOptions) {
         const value=await this.rpc.call('project_forget',{projectId:project.id,revision:project.revision},options) as {forgotten?: string};

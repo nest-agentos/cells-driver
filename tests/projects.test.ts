@@ -62,3 +62,19 @@ it('requires an explicit Cell capability before submitting selected project cont
  const current=new CellsProjectClient({call,metadata:async()=>({projectChannelPaths:1,projectContexts:1}),close:vi.fn()});
  await current.channel(project,'open',input);expect(call).toHaveBeenCalledWith('project_channel_open',{...input,projectId:'p',revision:2},undefined);
 });
+
+it('negotiates recovery metadata and directory remount without reading the broken binding',async()=>{
+    const directory={alias:'broader',path:'group/notes'},updated={...project,...directory,revision:3};
+    const call=vi.fn(async(name:string)=>({project:name==='project_binding'?project:updated}));
+    const client=new CellsProjectClient({call,metadata:async()=>({projectRemountPaths:1}),close:vi.fn()});
+    expect(await client.binding('p')).toEqual(project);
+    expect(await client.remount(project,'rw',undefined,directory)).toEqual(updated);
+    expect(call).toHaveBeenCalledWith('project_remount',{projectId:'p',revision:2,access:'rw',directory},undefined);
+    expect(call.mock.calls.some(([name])=>name==='project_read')).toBe(false);
+});
+it('does not send directory remounts to older nodes',async()=>{
+    const call=vi.fn();const client=new CellsProjectClient({call,metadata:async()=>({}),close:vi.fn()});
+    await expect(client.binding('p')).rejects.toMatchObject({code:'ECAPABILITY'});
+    await expect(client.remount(project,'rw',undefined,{alias:'broader',path:'group/notes'})).rejects.toMatchObject({code:'ECAPABILITY'});
+    expect(call).not.toHaveBeenCalled();
+});

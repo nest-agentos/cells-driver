@@ -255,3 +255,8 @@ The node owns durable harness execution identities. A session may include bounde
 Project clients negotiate `projectHarnessQueue: 1` and `projectHarnessRecovery: 1`. `registerSession` transfers legacy queue ownership, `queueSession` accepts/edits/reads node-owned work, and `recoverSession` delegates recovery and persistent deduplication to Cells. The NestOS journal supplies these ports; its conversation runtime does not dispatch managed queues or decide automatic recovery. Nodes without the capabilities reject the operation rather than silently falling back to client-side recovery.
 
 Client journals retain drafts and client operation metadata; native queue bodies and queue command outputs are held by Cells. A closed view releases its client lease while node-owned work continues. Unknown replies retain the original instruction/request identity, and queued edits remain revision fenced.
+
+
+### Recovering a project after export changes
+
+Nodes advertising `projectRemountPaths: 1` support `client.binding(projectId)` even when the old export is unavailable. This owner-only metadata query does not authorize file or execution access. Use its current revision with `client.remount(binding, access, options, {alias, path})`; the new export and relative directory must identify the original pinned directory. IDs, native history, channel records and client state remain under the same project. Older nodes reject these calls before dispatch; access-only `remount(project, access, options)` remains compatible. A lost response must be reconciled by reading binding metadata before an explicit retry.
