@@ -77,8 +77,18 @@ export function validatePage(value: unknown): HarnessPage {
     if (!Array.isArray(v.sessions) || !(v.nextCursor === null || typeof v.nextCursor === 'string')) throw invalid();
     return {...v, sessions: v.sessions.map(validateSession)} as unknown as HarnessPage;
 }
+function validateHistoryRecovery(value: unknown): void {
+    const v = record(value);
+    for (const key of ['skippedRecords', 'skippedBytes', 'nulRecords', 'invalidJsonRecords', 'invalidRecordRecords', 'firstOffset', 'lastOffset']) {
+        if (!Number.isSafeInteger(v[key]) || Number(v[key]) < 0) throw invalid();
+    }
+    if (Number(v.skippedRecords) < 1 || Number(v.skippedBytes) < Number(v.skippedRecords)
+        || Number(v.firstOffset) > Number(v.lastOffset)
+        || Number(v.nulRecords) + Number(v.invalidJsonRecords) + Number(v.invalidRecordRecords) !== v.skippedRecords) throw invalid();
+}
 export function validateHistory(value: unknown): HarnessHistory {
     const v = record(value), session = validateSession(v.session);
+    if (v.recovery !== undefined) validateHistoryRecovery(v.recovery);
     if (!(v.turns === null || Array.isArray(v.turns)) || !(v.nextCursor === undefined || v.nextCursor === null || typeof v.nextCursor === 'string')) throw invalid();
     if (v.eventCursor !== undefined) {
         const cursor = record(v.eventCursor);

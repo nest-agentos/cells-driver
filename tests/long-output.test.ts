@@ -33,3 +33,12 @@ it('rejects malformed native snapshot boundaries before using them', () => {
     for (const eventCursor of [{after: -1, eventEpoch: 'e'}, {after: 1.5, eventEpoch: 'e'}, {after: 1, eventEpoch: ''}])
         expect(() => validateHistory({session, turns: [], eventCursor})).toThrow();
 });
+
+it('validates damage metadata without accepting missing counts or reversed byte offsets', () => {
+    const recovery = {skippedRecords: 1, skippedBytes: 287, nulRecords: 1,
+        invalidJsonRecords: 0, invalidRecordRecords: 0, firstOffset: 100, lastOffset: 100};
+    expect(validateHistory({session, turns: [], recovery}).recovery).toEqual(recovery);
+    for (const patch of [{skippedRecords: 0}, {skippedBytes: -1}, {nulRecords: 2}, {lastOffset: 99}, {firstOffset: NaN}, {invalidJsonRecords: undefined}]) {
+        expect(() => validateHistory({session, turns: [], recovery: {...recovery, ...patch}})).toThrow();
+    }
+});

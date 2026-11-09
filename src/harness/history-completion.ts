@@ -35,6 +35,7 @@ function admittedPrompt(item: HarnessInstruction): boolean {
 /** Match an already admitted, attachment-free prompt. Never recover from matching reply text. */
 export async function recoverHistoryCompletions(history: HarnessHistory, sessionId: string, items: readonly HarnessInstruction[]) {
     if (history.session.id !== sessionId) throw invalid('HARNESS_HISTORY_SCOPE_MISMATCH');
+    if (history.recovery) return [];
     const turns = (history.turns ?? []).flatMap(value => {const turn = terminalTurn(value); return turn ? [turn] : [];});
     const result: Array<{turnId: string; nativeTurnId: string; status: TerminalTurn['status']}> = [];
     for (const item of items) {

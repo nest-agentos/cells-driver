@@ -1,4 +1,4 @@
-import {detachedExecution} from './execution-recovery';
+import {detachedExecution, freshDetachedExecution} from './execution-recovery';
 import {HarnessActivityTracker} from './activity';
 import {observeContextMetrics, validateMetrics, type HarnessMetrics} from './metrics';
 import {recoverHistoryCompletions} from './history-completion';
@@ -30,6 +30,7 @@ export type {HarnessConversationSnapshot} from './conversation-snapshot';
 export class HarnessConversation implements HarnessConversationPort {
     private readonly activity = new HarnessActivityTracker();
     private historyRevision?: string;
+    private historyRecovery?: import('./contracts').HarnessHistoryRecovery;
     private contentSinceInspect = false;
     private metricsValue?: HarnessMetrics;
     private contextRevision = 0;
@@ -93,43 +94,15 @@ export class HarnessConversation implements HarnessConversationPort {
         return this.snapshot();
     }
     private async recoverInstruction(edit: Extract<HarnessQueueEdit, {id: string}>) {
-        this.requireInstructionRecovery(edit);
-        const started = Date.now(), sessionId = this.session?.id;
-        return this.mutate(async () => {
-            if (!sessionId) throw new FSError('EINVAL', 'Recovery requires an existing session');
-            await this.read();
-            await this.inspectRecoverySession(sessionId);
-            const head = this.instructions.record.items[0];
-            if (head?.id === edit.id && head.receipt?.turnId && this.turnResults.has(head.receipt.turnId)) {
-                await this.instructions.pump(); return;
-            }
-            const evidence = detachedExecution(this.session);
-            if (!evidence) throw Object.assign(new FSError('EBUSY', 'Native execution is running, locked, or unconfirmed; stop it and retry recovery'), {remoteCode: 'HARNESS_RECOVERY_NOT_DETACHED'});
-            await this.instructions.recover(edit, evidence);
-            console.info('[Harness] Execution recovery', {operation: 'turn.recovery', operationId: edit.id, sessionId,
-                stage: 'abandon_wait', result: 'success', code: 'HARNESS_EXECUTION_RESULT_UNKNOWN', durationMs: Date.now() - started});
-        }).catch(error => {
-            const failure = this.errors.record('recovery', error);
-            console.warn('[Harness] Execution recovery', {operation: 'turn.recovery', operationId: edit.id, sessionId,
-                stage: 'abandon_wait', result: 'failure', code: failure.code, durationMs: Date.now() - started});
-            throw error;
-        });
-    }
-    private requireInstructionRecovery(edit: Extract<HarnessQueueEdit, {id: string}>): void {
-        if (!this.profile.capabilities.executionRecovery || !this.client.inspect)
-            throw new FSError('ECAPABILITY', 'Execution recovery requires an updated node');
-        if (this.busy || this.pending || this.controls.blocksDispatch || this.responses.length
-            || this.commandResults.some(row => row.status === 'running' || row.resultError))
-            throw new FSError('EBUSY', 'Resolve pending submissions and controls before recovery');
-        if (edit.expectedRevision !== this.instructions.record.revision || this.instructions.record.items[0]?.id !== edit.id)
-            throw new FSError('ECONFLICT', 'Instruction queue changed; refresh before recovering');
-    }
-    private async inspectRecoverySession(sessionId: string): Promise<void> {
-        const observed = await this.client.inspect!(this.profile.id, sessionId, this.options());
-        this.lifetime.signal.throwIfAborted();
-        if (observed.session.id !== sessionId) throw new FSError('EIO', 'Recovery session identity changed');
-        this.session = observed.session;
-        if (this.session.lastTurnId) this.recordTurnResult(this.session.lastTurnId, this.session.lastTurnResult);
+        const sessionId=this.session?.id,operationId=createRequestId(),started=Date.now();
+        if(!sessionId || !this.journal?.recoverSession)throw new FSError('ECAPABILITY','Recovery requires the Cells session authority');
+        try{
+            await this.journal.recoverSession({sessionId,operationId,instructionId:edit.id,expectedRevision:edit.expectedRevision});
+            await this.instructions.reload();this.notify();return this.snapshot();
+        }catch(error){
+            const failure=this.errors.record('recovery',error);
+            console.warn('[Harness] Execution recovery',{operation:'turn.recovery',operationId,sessionId,stage:'cells_forward',result:'failure',code:failure.code,durationMs:Date.now()-started});throw error;
+        }
     }
     private async queuedCommand(text: string) {
         if (!this.profile.capabilities.slashCommands || !text.trimStart().startsWith('/')) return;
@@ -273,7 +246,7 @@ export class HarnessConversation implements HarnessConversationPort {
             this.commandResults = replaceCommandRecord(this.commandResults, record);
             await this.save();
         }});
-        this.instructions = new HarnessInstructionRuntime({save: () => this.save(), snapshot: () => this.snapshot(),
+        this.instructions = new HarnessInstructionRuntime({remote:()=>this.journal?.instructions,save: () => this.save(), snapshot: () => this.snapshot(),
             load: async () => (await this.journal?.load())?.instructionQueue,
             reconcile: id => this.reconcileInstruction(id),
             command: id => this.commandResults.find(row => row.commandId === id),
@@ -292,7 +265,7 @@ export class HarnessConversation implements HarnessConversationPort {
     }
     get kind() { return this.profile.kind; }
     subscribe(listener: () => void): () => void {
-        this.localListeners.add(listener); const stop = this.client.subscribe(this.profile.id, listener);
+        this.localListeners.add(listener); const stop = this.client.subscribe(this.profile.id, listener,this.session?.id);
         return () => {this.localListeners.delete(listener); stop();};
     }
     private notify(): void {
@@ -308,13 +281,9 @@ export class HarnessConversation implements HarnessConversationPort {
         if (this.commandResults.some(row => row.status === 'running') && observation.execution === 'idle') observation.execution = 'running';
         const active = ['running', 'waiting-approval', 'waiting-input'].includes(observation.execution);
         const actions = this.actions(observation);
-        const queue = this.instructions.projection(observation), head = this.instructions.record.items[0];
-        if (this.writable && this.profile.capabilities.executionRecovery && head?.state === 'dispatching'
-            && head.receipt?.turnId && !head.commandKind && !head.steerTurnId && !head.terminal
-            && !this.turnResults.has(head.receipt.turnId) && Date.now() - (head.acceptedAt ?? head.createdAt) >= 60_000)
-            queue.recovery = {id: head.id};
+        const queue = this.instructionQueueProjection(observation);
         observation.canInterrupt = actions.canInterrupt; observation.canRespond = actions.canRespond;
-        return {executionRecovery: this.session?.executionRecovery, supportsSteer: !!this.profile.capabilities.steer && !!this.client.steer, metrics: this.metricsValue ?? this.session?.metrics, metricsError: this.metricsError, supportsMetrics: !!this.profile.capabilities.metrics && !!this.client.metrics, resultError: commandResultIssue(this.commandResults), ...(this.profile.capabilities.models ? {supportsModels: true} : {}), ...(this.profile.capabilities.slashCommands ? {supportsSlashCommands: true} : {}), ...(this.nativeCommands.length ? {slashCommands: this.availableCommands()} : {}), usage: this.session?.usage, usageUnavailable: this.session?.usageUnavailable, observation, submission: this.submission ? {...this.submission} : undefined, submittedTurnId: this.submittedTurnId, draft: this.draft, draftAttachments: structuredClone(this.draftAttachments), sessionId: this.navigationSessionId ?? this.session?.id, title: this.session?.title.trim() || this.profile.kind,
+        return {historyRecovery: this.historyRecovery, executionRecovery: this.session?.executionRecovery, supportsSteer: !!this.profile.capabilities.steer && !!this.client.steer, metrics: this.metricsValue ?? this.session?.metrics, metricsError: this.metricsError, supportsMetrics: !!this.profile.capabilities.metrics && !!this.client.metrics, resultError: commandResultIssue(this.commandResults), ...(this.profile.capabilities.models ? {supportsModels: true} : {}), ...(this.profile.capabilities.slashCommands ? {supportsSlashCommands: true} : {}), ...(this.nativeCommands.length ? {slashCommands: this.availableCommands()} : {}), usage: this.session?.usage, usageUnavailable: this.session?.usageUnavailable, observation, submission: this.submission ? {...this.submission} : undefined, submittedTurnId: this.submittedTurnId, draft: this.draft, draftAttachments: structuredClone(this.draftAttachments), sessionId: this.navigationSessionId ?? this.session?.id, title: this.session?.title.trim() || this.profile.kind,
             attachments: this.writable ? this.profile.capabilities.attachments : undefined,
             deletedSessionIds: this.deletedSessionIds.slice(),
             archived: !!this.session?.archived,
@@ -328,6 +297,22 @@ export class HarnessConversation implements HarnessConversationPort {
             commandCatalogObservation: this.commandCatalogObservation ? {...this.commandCatalogObservation} : undefined,
             queryReceipts: this.queries.receipts(), pendingQueryReports: this.queries.pendingReports(), controls: this.controls.projection(), instructionQueue: queue, canQueue: this.loaded && this.writable && !this.lifetime.signal.aborted && !this.deletedSessionIds.length && !this.session?.archived && !this.navigationSessionId && !this.forking && this.pending?.operation !== 'fork' && !!this.journal && !!this.session && (!!this.session.owned || this.profile.capabilities.resume),
             ...actions, active, pending: observation.receiptUnknown, disconnected: observation.connection === 'offline', gap: this.gap};
+    }
+    private instructionQueueProjection(observation: HarnessObservation) {
+        const queue = this.instructions.projection(observation), head = this.recoveryHead();
+        if (!this.profile.capabilities.executionRecovery || !this.client.inspect || !head) return queue;
+        const detached = freshDetachedExecution(this.session, observation);
+        const expired = Date.now() - (head.acceptedAt ?? head.createdAt) >= 60_000;
+        if (!detached && !expired) return queue;
+        if (queue.reason === 'terminal-unconfirmed') queue.reason = detached ? 'execution-detached' : 'recovery-required';
+        if (this.writable) queue.recovery = {id: head.id, ...(['execution-detached', 'recovery-required'].includes(queue.reason ?? '') ? {required: true} : {})};
+        return queue;
+    }
+    private recoveryHead() {
+        const head = this.instructions.record.items[0];
+        if (head?.state !== 'dispatching' || !head.receipt?.turnId) return;
+        if (head.receipt.resultError || head.commandKind || head.steerTurnId || head.terminal || this.turnResults.has(head.receipt.turnId)) return;
+        return head;
     }
     private actions(observation: HarnessObservation): HarnessConversationActions {
         const available = observation.connection === 'online' && !observation.stale;
@@ -565,23 +550,28 @@ export class HarnessConversation implements HarnessConversationPort {
     }
     async read(): Promise<HarnessConversationSnapshot> {
         await this.restore();
+        if(this.journal?.instructions){
+            await this.instructions.reload();
+            for(const command of validateCommandReceipts(this.instructions.record.commandResults))this.commandResults=replaceCommandRecord(this.commandResults,command);
+        }
         if (this.pending?.operation === 'delete') return this.reconcile();
         if (this.deletedSessionIds.length) return this.snapshot();
         if (this.session) {
-            const history = await this.client.read(this.profile.id, this.session.id, {...this.options(), toolDetail: 'summary'});
+            const history = await this.client.read(this.profile.id, this.session.id, {...this.options(), toolDetail: 'summary',sessionId:this.session?.id});
             await this.observeHistoryCompletion(history);
-            const nativeMessages = historyMessages(history); this.observeCommandHistory(nativeMessages);
+            const nativeMessages = historyMessages(history); if (!history.recovery) this.observeCommandHistory(nativeMessages);
             const messages = nativeMessages.map(message => projectCommandMessage(message, this.commandResults));
-            for (const value of history.turns ?? []) {
+            for (const value of history.recovery ? [] : history.turns ?? []) {
                 const turn = value as {id?: string; status?: string};
                 if (turn.id) this.recordTurnResult(turn.id, turn.status);
             }
             this.messages = this.expandedHistory ? mergeMessages(this.messages, messages) : messages;
             this.session = {...history.session, lastTurnResult: history.session.lastTurnResult ?? (history.session.lastTurnId ? this.turnResults.get(history.session.lastTurnId) : undefined)};
-            if (this.session.lastTurnId) this.recordTurnResult(this.session.lastTurnId, this.session.lastTurnResult);
+            if (!history.recovery && this.session.lastTurnId) this.recordTurnResult(this.session.lastTurnId, this.session.lastTurnResult);
             if (history.eventCursor) this.cursor = {...history.eventCursor};
             this.observedAt = Date.now(); this.source = 'history'; this.gap = false;
             this.historyRevision = history.session.historyRevision;
+            this.historyRecovery = history.recovery ?? (this.expandedHistory ? this.historyRecovery : undefined);
             if (!this.expandedHistory) { this.earlier = history.nextCursor ?? undefined; this.historyCursors.clear(); }
             for (const message of this.messages) if (message.status === 'completed') this.completedItems.add(message.id);
             while (this.completedItems.size > 1000) this.completedItems.delete(this.completedItems.values().next().value!);
@@ -590,7 +580,7 @@ export class HarnessConversation implements HarnessConversationPort {
         this.refreshError = undefined; this.errors.clear('history');
         if (this.session) {
             try {
-                const page = await this.client.eventSnapshot(this.profile.id, this.cursor, {...this.options(), toolDetail: 'summary'});
+                const page = await this.client.eventSnapshot(this.profile.id, this.cursor, {...this.options(), toolDetail: 'summary',sessionId:this.session?.id});
                 this.requests = page.requests.filter(r => r.params?.threadId === this.session!.id).flatMap(nativeRequest);
                 await this.reconcileResponses();
             } catch (error) {this.refreshError = this.errors.record('events', error);}
@@ -604,6 +594,7 @@ export class HarnessConversation implements HarnessConversationPort {
         if (history.nextCursor === this.earlier || history.nextCursor && this.historyCursors.has(history.nextCursor)) throw new FSError('EIO','History cursor did not advance');
         await this.observeHistoryCompletion(history);
         this.messages = mergeMessages(historyMessages(history), this.messages); this.expandedHistory = true;
+        this.historyRecovery = history.recovery ?? this.historyRecovery;
         this.historyCursors.add(this.earlier);
         this.earlier = history.nextCursor ?? undefined;
         return this.snapshot();
@@ -647,7 +638,7 @@ export class HarnessConversation implements HarnessConversationPort {
         if (this.deletedSessionIds.length) return this.snapshot();
         let stage = 'events';
         try {
-            const page = await this.client.eventSnapshot(this.profile.id, this.cursor, {...this.options(), toolDetail: 'summary'});
+            const page = await this.client.eventSnapshot(this.profile.id, this.cursor, {...this.options(), toolDetail: 'summary',sessionId:this.session?.id});
             this.disconnected = false;
             const repair = page.gap || !!this.cursor && this.cursor.eventEpoch !== page.epoch;
             if (repair && this.busy) {
@@ -723,7 +714,8 @@ export class HarnessConversation implements HarnessConversationPort {
         this.terminalReadAt = Date.now(); await this.read();
         try {console.info('[Harness] Turn recovery history', {operation: 'turn.history.reconcile', operationId: turnId,
             sessionId: this.session?.id, stage: 'idle_history', result: this.turnResults.has(turnId) ? 'confirmed' : 'unconfirmed',
-            code: this.turnResults.has(turnId) ? undefined : detachedExecution(this.session) ? 'HARNESS_EXECUTION_RESULT_UNKNOWN' : 'HARNESS_TERMINAL_UNCONFIRMED',
+            code: this.turnResults.has(turnId) ? undefined : this.snapshot().instructionQueue?.recovery?.required ? 'HARNESS_EXECUTION_RECOVERY_REQUIRED' : 'HARNESS_TERMINAL_UNCONFIRMED',
+            queueReason: this.snapshot().instructionQueue?.reason,
             durationMs: Date.now() - this.terminalReadAt});} catch { /* Diagnostics cannot settle an admitted turn. */ }
     }
     private consume(page: HarnessEvents) {

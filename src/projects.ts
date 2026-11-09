@@ -1,3 +1,4 @@
+import {validateNodeRecovery, validateNodeQueue, type HarnessNodeRecoveryRequest, type HarnessNodeRecoveryResult, type HarnessNodeQueueRequest} from './harness/node-recovery';
 import {validateAuthorization, validateProjectCapabilities, type RemoteAuthorization, type RemoteProjectCapabilities} from './authorization';
 import { MCPDirectorySyncClient, type DirectorySyncClient } from './directory-sync';
 import { FSError, type OperationOptions } from '@nestos/vfs-core';
@@ -16,6 +17,9 @@ export interface RemoteProject {
 export interface RegisterProject { id?: string; name: string; alias: string; path: string; access: 'ro' | 'rw'; mounts?: ProjectMount[]; createDirectory?: boolean }
 export interface ProjectProcess { state: string; stdout: string; stderr: string; code: number | null; error: string | null; truncated: boolean }
 export interface ProjectClient {
+    queueSession?(project:RemoteProject,input:HarnessNodeQueueRequest,options?:OperationOptions):Promise<import('./harness/instruction-queue').HarnessInstructionQueue>;
+    registerSession?(project: RemoteProject, input: {namespace:string;profileId:string;sessionId:string}, options?: OperationOptions): Promise<boolean>;
+    recoverSession?(project: RemoteProject, input: HarnessNodeRecoveryRequest, options?: OperationOptions): Promise<HarnessNodeRecoveryResult>;
     clientState?(project:RemoteProject,input:{key:string;action:"read"|"compare";expected?:string|null;value?:string|null;requestId?:string},options?:OperationOptions):Promise<{value?:string|null;applied?:boolean}>;
     channel?(project: RemoteProject, operation: 'open' | 'messages' | 'close' | 'requests' | 'respond' | 'current' | 'acknowledge', input: Record<string, unknown>, options?: OperationOptions): Promise<unknown>;
     executionSettings?(project: RemoteProject, options?: OperationOptions): Promise<ProjectExecutionSettings>;
@@ -37,11 +41,27 @@ export class CellsProjectClient implements ProjectClient {
     async channel(project: RemoteProject, operation: 'open' | 'messages' | 'close' | 'requests' | 'respond' | 'current' | 'acknowledge', input: Record<string, unknown>, options?: OperationOptions): Promise<unknown> {
         let request = input;
         if (operation === 'open' || operation === 'current') {
-            const meta = await this.rpc.metadata?.(options) as {projectChannelPaths?: number} | undefined;
+            const meta = await this.rpc.metadata?.(options) as {projectChannelPaths?: number;projectContexts?:number} | undefined;
+            if(input.contextProjects!==undefined&&meta?.projectContexts!==1)throw Object.assign(new FSError('ECAPABILITY','Cell project contexts require a newer server'),{remoteCode:'CELL_PROJECT_CONTEXT_REQUIRED'});
             if (meta?.projectChannelPaths !== 1 && typeof input.cwd === 'string' && !input.cwd.startsWith('/'))
                 request = {...input, cwd: `/projects/${project.id}/${input.cwd}`};
         }
         return this.rpc.call('project_channel_' + operation, {...request, projectId: project.id, revision: project.revision}, options);
+    }
+    async queueSession(project:RemoteProject,input:HarnessNodeQueueRequest,options?:OperationOptions){
+        const meta=await this.rpc.metadata?.(options);if(meta?.projectHarnessQueue!==1)throw new FSError('ECAPABILITY','Native queue ownership requires an updated Cells node');
+        const result=await this.rpc.call('project_harness_queue',{...input,projectId:project.id,revision:project.revision},options) as {queue?:import('./harness/instruction-queue').HarnessInstructionQueue};
+        if(!result?.queue)throw new FSError('EIO','Cells queue receipt is missing');validateNodeQueue(result.queue);return result.queue;
+    }
+    async registerSession(project: RemoteProject, input: {namespace:string;profileId:string;sessionId:string}, options?: OperationOptions): Promise<boolean> {
+        const meta=await this.rpc.metadata?.(options);if(meta?.projectHarnessRecovery!==1)return false;
+        const result=await this.rpc.call('project_harness_recovery',{...input,projectId:project.id,revision:project.revision,action:'register',...(meta?.projectHarnessQueue===1?{queueOwner:'cells'}:{})},options) as {registered?:boolean};
+        if(result?.registered!==true)throw new FSError('EIO','Cells session registration is unconfirmed');return true;
+    }
+    async recoverSession(project: RemoteProject, input: HarnessNodeRecoveryRequest, options?: OperationOptions): Promise<HarnessNodeRecoveryResult> {
+        const meta=await this.rpc.metadata?.(options);
+        if (meta?.projectHarnessRecovery!==1) throw new FSError('ECAPABILITY','Session recovery requires an updated Cells node');
+        return validateNodeRecovery(await this.rpc.call('project_harness_recovery',{...input,projectId:project.id,revision:project.revision},options),input);
     }
     constructor(private readonly rpc: CellsRpc) {}
     async clientState(project:RemoteProject,input:{key:string;action:'read'|'compare';expected?:string|null;value?:string|null;requestId?:string},options?:OperationOptions):Promise<{value?:string|null;applied?:boolean}> {

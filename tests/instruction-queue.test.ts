@@ -96,33 +96,16 @@ it('retains the rejected head when persisting its resumed attempt fails', async 
     expect(f.runtime.record).toEqual(saved); expect(f.ports.send).toHaveBeenCalledOnce();
 });
 
-const detachedEvidence = {state: 'detached' as const, checkedAt: 100, runtimeId: 'a'.repeat(32), processId: 10, childPid: 11, runtimeStartedAt: 50};
-it('keeps manual recovery evidence across restart without replaying or declaring a terminal result', async () => {
-    const f = fixture();
-    const original = {...detachedEvidence, state: 'running' as const, runtimeId: 'b'.repeat(32), childPid: 12};
-    f.ports.snapshot().executionRecovery = original;
-    await f.enqueue('first'); await f.enqueue('second'); f.idle(); await f.runtime.pump();
-    const revision = f.runtime.record.revision;
-    await f.runtime.recover({action: 'recover', id: 'first', expectedRevision: revision}, detachedEvidence);
-    const saved = structuredClone(f.runtime.record); f.runtime.restore(saved);
-    await f.runtime.pump();
-    expect(f.runtime.record).toMatchObject({paused: true, items: [{id: 'second'}],
-        recoveries: [{id: 'first', turnId: 'turn', outcome: 'unknown', originalExecution: original, evidence: detachedEvidence}]});
-    expect(f.runtime.record.receipts.map(row => row.id)).toEqual(['first', 'second']);
-    expect(f.ports.send).toHaveBeenCalledOnce(); expect(f.ports.completion).not.toHaveReturnedWith('cancelled');
-    await expect(f.runtime.recover({action: 'recover', id: 'first', expectedRevision: revision}, detachedEvidence)).rejects.toMatchObject({code: 'ECONFLICT'});
+it('requires the Cells authority for recovery rather than accepting a local queue edit',async()=>{
+    const f=fixture();await f.enqueue('first');f.idle();await f.runtime.pump();
+    await expect(f.runtime.edit({action:'recover',id:'first',expectedRevision:f.runtime.record.revision})).rejects.toThrow('fresh native execution evidence');
+    expect(f.runtime.record.items[0].id).toBe('first');expect(f.ports.send).toHaveBeenCalledOnce();
 });
-it('does not remove the accepted head if saving a manual recovery fails', async () => {
-    const f = fixture(); await f.enqueue('first'); f.idle(); await f.runtime.pump();
-    const saved = structuredClone(f.runtime.record);
-    f.ports.save.mockRejectedValueOnce(new Error('storage unavailable'));
-    await expect(f.runtime.recover({action: 'recover', id: 'first', expectedRevision: saved.revision}, detachedEvidence)).rejects.toThrow('storage unavailable');
-    expect(f.runtime.record).toEqual(saved); expect(f.ports.send).toHaveBeenCalledOnce();
-});
-it('rejects recovery using a bare queue edit or malformed persisted evidence', async () => {
-    const f = fixture(); await f.enqueue('first'); f.idle(); await f.runtime.pump();
-    await expect(f.runtime.edit({action: 'recover', id: 'first', expectedRevision: f.runtime.record.revision})).rejects.toThrow('fresh native execution evidence');
-    await f.runtime.recover({action: 'recover', id: 'first', expectedRevision: f.runtime.record.revision}, detachedEvidence);
-    const saved = structuredClone(f.runtime.record); saved.recoveries![0].evidence.state = 'running';
-    expect(() => f.runtime.restore(saved)).toThrow('Invalid instruction recovery record');
+it('delegates managed queue changes and never dispatches from the NestOS runtime',async()=>{
+    const f=fixture();const remote={enqueue:vi.fn(async()=>({owner:'cells' as const,revision:9,paused:false,items:[],receipts:[{id:'node-item',input:'a'.repeat(64)}]})),edit:vi.fn(async()=>({owner:'cells' as const,revision:10,paused:true,items:[],receipts:[]}))};
+    Object.assign(f.ports,{remote:()=>remote});
+    await f.runtime.enqueue({id:'node-item',text:'delegated',attachments:[],createdAt:1,state:'pending'});
+    expect(f.runtime.record).toMatchObject({owner:'cells',revision:9});await f.runtime.edit({action:'pause',expectedRevision:9});
+    expect(remote.edit).toHaveBeenCalledWith({action:'pause',expectedRevision:9},undefined);
+    f.ports.load.mockResolvedValue(f.runtime.record);await f.runtime.pump();expect(f.ports.send).not.toHaveBeenCalled();expect(f.ports.save).not.toHaveBeenCalled();
 });

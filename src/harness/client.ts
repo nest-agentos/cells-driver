@@ -58,15 +58,16 @@ export class CellsHarnessClient implements HarnessClient {
     private epoch?: string;
     private readonly feeds = new Map<string, HarnessEventFeed>();
     private closed = false;
-    private feed(profileId: string): HarnessEventFeed {
+    private feed(profileId: string,sessionId?:string): HarnessEventFeed {
         if (this.closed) throw new FSError('ECANCELLED','Harness client is closed');
-        let feed = this.feeds.get(profileId);
-        if (!feed) { feed = new HarnessEventFeed(this.rpc,{...this.scope,profileId}); this.feeds.set(profileId,feed); }
+        const key=JSON.stringify([profileId,sessionId??null]);
+        let feed = this.feeds.get(key);
+        if (!feed) { feed = new HarnessEventFeed(this.rpc,{...this.scope,profileId,...(sessionId?{sessionId}:{})}); this.feeds.set(key,feed); }
         return feed;
     }
-    subscribe(profileId: string, listener: () => void): () => void { return this.feed(profileId).subscribe(listener); }
+    subscribe(profileId: string, listener: () => void,sessionId?:string): () => void { return this.feed(profileId,sessionId).subscribe(listener); }
     eventSnapshot(profileId: string, cursor?: {after:number;eventEpoch:string}, options?: HarnessEventsOptions): Promise<HarnessEvents> {
-        return this.feed(profileId).snapshot(cursor,options);
+        return this.feed(profileId,options?.sessionId).snapshot(cursor,options);
     }
     private directoryValue?: string;
     private directoryError?: unknown;

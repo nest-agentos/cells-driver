@@ -21,6 +21,7 @@ export interface HarnessConversationActions {
 }
 /** Public read model; runtime fields and private implementation never define this contract. */
 export interface HarnessConversationSnapshot extends HarnessConversationActions {
+    historyRecovery?: import('./contracts').HarnessHistoryRecovery;
     executionRecovery?: import('./contracts').HarnessExecutionRecovery;
     metrics?: import('./metrics').HarnessMetrics;
     metricsError?: {code: string};

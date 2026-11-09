@@ -1,7 +1,7 @@
 import {expect, it, vi} from 'vitest';
 import {HarnessConversation} from '../src/harness/conversation';
 import type {HarnessClient, HarnessProfile, HarnessSession} from '../src/harness/contracts';
-import type {HarnessRecovery} from '../src/harness/conversation-journal';
+import type {HarnessConversationJournal,HarnessRecovery} from '../src/harness/conversation-journal';
 
 async function fixture() {
     const profile: HarnessProfile = {id: 'codex', kind: 'codex', workspaces: [{id: 'project'}], capabilities: {history: true, create: true, resume: true, interrupt: true, interactions: true}};
@@ -13,8 +13,9 @@ async function fixture() {
         eventSnapshot: vi.fn(async () => ({epoch: 'events', cursor: 0, gap: false, events: [], requests: []})), subscribe: () => () => {},
         list: vi.fn(), create: vi.fn(), resume: vi.fn(), turn: vi.fn(), interrupt: vi.fn(), respond: vi.fn(), operation: vi.fn(), close: vi.fn()};
     const save = vi.fn(async (next: HarnessRecovery) => {record = structuredClone(next);});
-    const view = new HarnessConversation(client, profile, 'project', 'native', true, {epoch: 'epoch', load: async () => record, save});
-    await view.read(); return {client, view, session, profile, save, saved: () => record};
+    const journal:HarnessConversationJournal={epoch:'epoch',load:async()=>record,save};
+    const view = new HarnessConversation(client, profile, 'project', 'native', true, journal);
+    await view.read(); return {client, view, session, profile, save, journal, saved: () => record};
 }
 
 it('settles an admitted turn from exact inspection evidence when its completion event was missed', async () => {
@@ -103,53 +104,27 @@ function detachedSession(session: HarnessSession): HarnessSession {
         writerLock: {status: 'not-held', checkedAt: 100}, executionRecovery: recoveryEvidence};
 }
 
-it('explicitly abandons a detached turn as unknown, persists the decision and keeps later work paused', async () => {
-    const f = await fixture(); f.profile.capabilities.executionRecovery = true;
-    const session = detachedSession(f.session);
-    vi.mocked(f.client.read).mockResolvedValue({session, turns: []});
-    vi.mocked(f.client.inspect!).mockResolvedValue({session});
-    await f.view.enqueue('Later instruction', [], undefined, 'later');
-    try {
-        const revision = f.view.snapshot().instructionQueue!.revision;
-        await f.view.editInstructionQueue({action: 'recover', id: 'first', expectedRevision: revision});
-        expect(f.saved().instructionQueue).toMatchObject({paused: true, items: [{id: 'later', state: 'pending'}],
-            recoveries: [{id: 'first', turnId: 'old-turn', outcome: 'unknown', evidence: recoveryEvidence}]});
-        await f.view.refresh();
-        expect(f.client.turn).not.toHaveBeenCalled(); expect(f.client.resume).not.toHaveBeenCalled();
-        expect(f.saved().instructionQueue!.receipts[0]).toMatchObject({id: 'first', turnId: 'old-turn'});
-        expect(f.view.snapshot().instructionQueue!.recoveries![0]).not.toHaveProperty('terminal');
-    } finally {await f.view.close();}
+it('delegates recovery to Cells and consumes its persisted queue without a native resend',async()=>{
+    const f=await fixture();
+    const recover=vi.fn(async()=>{const next=structuredClone(f.saved());next.instructionQueue!.revision++;next.instructionQueue!.items=[];next.instructionQueue!.paused=true;await f.save(next);});
+    f.journal.recoverSession=recover;
+    try{
+        await f.view.editInstructionQueue({action:'recover',id:'first',expectedRevision:2});
+        expect(recover).toHaveBeenCalledWith(expect.objectContaining({sessionId:'native',instructionId:'first',expectedRevision:2,operationId:expect.any(String)}));
+        expect(f.view.snapshot().instructionQueue).toMatchObject({revision:3,paused:true,items:[]});expect(f.client.turn).not.toHaveBeenCalled();expect(f.client.resume).not.toHaveBeenCalled();
+    }finally{await f.view.close();}
 });
-
-it.each(['held', 'unknown', 'active', 'owned', 'missing-evidence', 'wrong-session'])('refuses manual recovery without positive detached evidence (%s)', async blocked => {
-    const f = await fixture(); f.profile.capabilities.executionRecovery = true;
-    const session = detachedSession(f.session);
-    if (blocked === 'held') session.writerLock = {status: 'held', checkedAt: 100, owner: {pid: 99}};
-    if (blocked === 'unknown') session.writerLock!.status = 'unknown';
-    if (blocked === 'active') {session.status = 'active'; session.activeTurnId = 'old-turn';}
-    if (blocked === 'owned') session.owned = true;
-    if (blocked === 'missing-evidence') delete session.executionRecovery;
-    vi.mocked(f.client.read).mockResolvedValue({session, turns: []});
-    vi.mocked(f.client.inspect!).mockResolvedValue({session: {...session, id: blocked === 'wrong-session' ? 'other' : session.id}});
-    try {
-        await expect(f.view.editInstructionQueue({action: 'recover', id: 'first', expectedRevision: 2})).rejects.toMatchObject({code: blocked === 'wrong-session' ? 'EIO' : 'EBUSY'});
-        expect(f.saved().instructionQueue!.items).toHaveLength(1);
-        expect(f.saved().instructionQueue!.recoveries).toBeUndefined();
-        expect(f.client.turn).not.toHaveBeenCalled(); expect(f.client.resume).not.toHaveBeenCalled();
-    } finally {await f.view.close();}
+it('does not run local recovery rules when no Cells recovery authority is bound',async()=>{
+    const f=await fixture();try{
+        await expect(f.view.editInstructionQueue({action:'recover',id:'first',expectedRevision:2})).rejects.toMatchObject({code:'ECAPABILITY'});
+        expect(f.saved().instructionQueue!.items).toHaveLength(1);expect(f.client.turn).not.toHaveBeenCalled();
+    }finally{await f.view.close();}
 });
-
-it('does not label a completed native turn as an unknown recovery', async () => {
-    const f = await fixture(); f.profile.capabilities.executionRecovery = true;
-    const session = {...detachedSession(f.session), lastTurnId: 'old-turn', lastTurnResult: 'completed' as const};
-    vi.mocked(f.client.read).mockResolvedValue({session, turns: [{id: 'old-turn', status: 'completed', items: []}]});
-    vi.mocked(f.client.inspect!).mockResolvedValue({session});
-    try {
-        await f.view.editInstructionQueue({action: 'recover', id: 'first', expectedRevision: 2});
-        expect(f.saved().instructionQueue!.items).toEqual([]);
-        expect(f.saved().instructionQueue!.recoveries).toBeUndefined();
-        expect(f.client.turn).not.toHaveBeenCalled();
-    } finally {await f.view.close();}
+it.each(['ECONFLICT','EBUSY','EIO'])('retains the queue and propagates the Cells rejection (%s)',async code=>{
+    const f=await fixture();f.journal.recoverSession=vi.fn(async()=>{throw Object.assign(new Error('Node recovery rejected'),{code,outcome:code==='EIO'?'unknown':'not-committed'});});
+    try{await expect(f.view.editInstructionQueue({action:'recover',id:'first',expectedRevision:2})).rejects.toMatchObject({code});
+        expect(f.saved().instructionQueue!.items).toHaveLength(1);expect(f.client.turn).not.toHaveBeenCalled();
+    }finally{await f.view.close();}
 });
 
 it('offers recovery after the observation timeout without treating the timeout as completion', async () => {
@@ -180,24 +155,57 @@ it.each(['completed', 'interrupted'])('settles a terminal-only rollout row after
     } finally {await reopened.close();}
 });
 
-it('retains an orphaned head on save failure and preserves unknown recovery after reopening', async () => {
+it('immediately projects a detached turn as requiring recovery without changing admission or replaying', async () => {
     const f = await fixture(); f.profile.capabilities.executionRecovery = true;
-    const session = detachedSession(f.session);
+    const now = Date.now(), session = detachedSession(f.session);
+    session.executionRecovery = {...recoveryEvidence, checkedAt: now}; session.writerLock = {status: 'not-held', checkedAt: now};
     vi.mocked(f.client.read).mockResolvedValue({session, turns: []});
     vi.mocked(f.client.inspect!).mockResolvedValue({session});
     await f.view.enqueue('Later instruction', [], undefined, 'later');
-    const edit = {action: 'recover' as const, id: 'first', expectedRevision: f.view.snapshot().instructionQueue!.revision};
-    f.save.mockRejectedValueOnce(Object.assign(new Error('Unavailable'), {code: 'EIO'}));
-    await expect(f.view.editInstructionQueue(edit)).rejects.toMatchObject({code: 'EIO'});
-    expect(f.saved().instructionQueue!.items[0].id).toBe('first');
-    expect(f.saved().instructionQueue!.recoveries).toBeUndefined();
-    await f.view.editInstructionQueue(edit); await f.view.close();
-    const reopened = new HarnessConversation(f.client, f.profile, 'project', 'native', true,
-        {epoch: 'new-epoch', load: async () => structuredClone(f.saved()), save: f.save});
     try {
-        await reopened.read(); await reopened.refresh();
-        expect(reopened.snapshot().instructionQueue).toMatchObject({paused: true, items: [{id: 'later', state: 'pending'}],
-            recoveries: [{turnId: 'old-turn', outcome: 'unknown', evidence: recoveryEvidence}]});
-        expect(f.client.turn).not.toHaveBeenCalled(); expect(f.client.resume).not.toHaveBeenCalled();
-    } finally {await reopened.close();}
+        await f.view.read();
+        const before = structuredClone(f.saved());
+        expect(f.view.snapshot().instructionQueue).toMatchObject({reason: 'execution-detached', recovery: {id: 'first', required: true},
+            items: [{id: 'first', state: 'dispatching'}, {id: 'later', state: 'pending'}]});
+        expect(f.saved()).toEqual(before); expect(f.client.turn).not.toHaveBeenCalled();
+        const reopened = new HarnessConversation(f.client, f.profile, 'project', 'native', true,
+            {epoch: 'new-epoch', load: async () => structuredClone(f.saved()), save: f.save});
+        try {await reopened.read(); expect(reopened.snapshot().instructionQueue!.recovery).toEqual({id: 'first', required: true});}
+        finally {await reopened.close();}
+    } finally {await f.view.close();}
+});
+
+it.each(['held', 'stale', 'missing'])('does not report positive detachment with %s evidence', async blocked => {
+    const f = await fixture(); f.profile.capabilities.executionRecovery = true;
+    const now = Date.now(), session = detachedSession(f.session), checkedAt = blocked === 'stale' ? now - 30_001 : now;
+    session.executionRecovery = {...recoveryEvidence, checkedAt}; session.writerLock = {status: blocked === 'held' ? 'held' : 'not-held', checkedAt};
+    if (blocked === 'missing') delete session.executionRecovery;
+    vi.mocked(f.client.read).mockResolvedValue({session, turns: []});
+    try {await f.view.read(); expect(f.view.snapshot().instructionQueue!.reason).toBe('terminal-unconfirmed');
+        expect(f.view.snapshot().instructionQueue!.recovery).toBeUndefined(); expect(f.client.turn).not.toHaveBeenCalled();}
+    finally {await f.view.close();}
+});
+
+it('turns prolonged idle waiting into an actionable recovery state without assuming completion', async () => {
+    const f = await fixture(); f.profile.capabilities.executionRecovery = true;
+    const clock = vi.spyOn(Date, 'now'), started = Date.now();
+    vi.mocked(f.client.read).mockResolvedValue({session: {...f.session, status: 'idle', activeTurnId: null}, turns: []});
+    try {
+        await f.view.read(); clock.mockReturnValue(started + 60_001);
+        expect(f.view.snapshot().instructionQueue).toMatchObject({reason: 'recovery-required', recovery: {id: 'first', required: true}});
+        expect(f.saved().instructionQueue!.items).toHaveLength(1); expect(f.client.turn).not.toHaveBeenCalled();
+    } finally {clock.mockRestore(); await f.view.close();}
+});
+
+function restartedSession(session: HarnessSession): HarnessSession {
+    const checkedAt = Date.now();
+    return {...detachedSession(session), writerLock: {status: 'not-held', checkedAt}, executionRecovery: {
+        ...recoveryEvidence, checkedAt, interruptedTurns: [{turnId: 'old-turn', requestId: 'first', previousEpoch: 'previous-node', recoveredAt: checkedAt - 1, reason: 'CELLS_RESTARTED'}]}};
+}
+
+it('does not decide automatic recovery in the NestOS driver even when restart proof is present',async()=>{
+    const f=await fixture();f.profile.capabilities.executionRecovery=true;
+    const session=restartedSession(f.session);vi.mocked(f.client.read).mockResolvedValue({session,turns:[]});vi.mocked(f.client.inspect!).mockResolvedValue({session});
+    try{await f.view.read();expect(f.saved().instructionQueue!.items).toHaveLength(1);expect(f.saved().instructionQueue!.recoveries).toBeUndefined();expect(f.client.turn).not.toHaveBeenCalled();}
+    finally{await f.view.close();}
 });

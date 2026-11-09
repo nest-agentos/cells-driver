@@ -136,3 +136,40 @@ it('retains an observed terminal result only when later history keeps the same t
         expect(f.client.turn).toHaveBeenCalledTimes(1);
     } finally {await view.close();}
 });
+
+it('shows readable history without settling or replaying a claim when records were skipped', async () => {
+    const f = await fixture();
+    const recovery = {skippedRecords: 1, skippedBytes: 287, nulRecords: 1,
+        invalidJsonRecords: 0, invalidRecordRecords: 0, firstOffset: 100, lastOffset: 100};
+    vi.mocked(f.client.read).mockResolvedValue({session, recovery, turns: [
+        {id: 'original', status: 'completed', submissionEvidence: evidence,
+            items: [{id: 'answer', type: 'agentMessage', text: 'readable'}]},
+    ]});
+    const view = f.open();
+    try {
+        await view.read(); await view.reconcile('original');
+        expect(view.snapshot().historyRecovery).toEqual(recovery);
+        expect(view.snapshot().messages.some(message => message.text === 'readable')).toBe(true);
+        expect(view.snapshot().instructionQueue?.items).toHaveLength(1);
+        expect(f.client.turn).toHaveBeenCalledTimes(1);
+        expect(f.client.resume).not.toHaveBeenCalled();
+    } finally {await view.close();}
+});
+
+it('retains the incomplete-history warning after paging across a damaged older range', async () => {
+    const f = await fixture();
+    const recovery = {skippedRecords: 1, skippedBytes: 287, nulRecords: 1,
+        invalidJsonRecords: 0, invalidRecordRecords: 0, firstOffset: 100, lastOffset: 100};
+    vi.mocked(f.client.read).mockImplementation(async (_profile, _session, options) => options?.cursor === 'older'
+        ? {session, recovery, turns: [], nextCursor: 'oldest'}
+        : options?.cursor === 'oldest' ? {session, turns: [], nextCursor: null}
+        : {session, turns: [], nextCursor: 'older'});
+    const view = f.open();
+    try {
+        await view.read(); expect(view.snapshot().historyRecovery).toBeUndefined();
+        await view.loadEarlier(); expect(view.snapshot().historyRecovery).toEqual(recovery);
+        await view.loadEarlier(); expect(view.snapshot().historyRecovery).toEqual(recovery);
+        await view.read(); expect(view.snapshot().historyRecovery).toEqual(recovery);
+        expect(f.client.turn).toHaveBeenCalledTimes(1);
+    } finally {await view.close();}
+});

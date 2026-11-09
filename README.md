@@ -233,7 +233,7 @@ Codex 的 `session.historyRevision` 独立于本运行时的事件游标，表�
 
 远程执行以节点原生状态、写锁与历史为准，httpd 的持久队列只记录提交及调度事实。协商 `capabilities.executionRecovery` 后，节点在历史与 inspect 的 `session.executionRecovery` 返回运行时身份、PID、启动时间及 running/detached/unknown。只有原生会话 notLoaded、未被本节点接管、没有 activeTurnId 且写锁确认为 not-held 时才声明 detached；PID 或锁文件缺失本身不充当 turn 终态。
 
-已接纳队首等待超过 60 秒仍没有精确终态时，队列投影提供 `recovery.id`。界面经二次确认调用 `editInstructionQueue({action:'recover',id,expectedRevision})`：先读原生历史并重新 inspect，不依赖 httpd 缓存；真实终态正常结算，否则仅允许 detached 的普通已接纳 turn 结束等待。原生仍运行、写锁占用/未知、未决提交或控制操作、命令及身份冲突均拒绝。恢复决策以 outcome=unknown、原 turn/attempt、节点证据和时间存入原 journal 的 instructionQueue.recoveries（最多64项，不自动淘汰），已接纳输入同时保存可用的原运行时证据；保存失败不移除队首。
+已接纳的普通队首缺少精确终态时，若节点提供不超过 30 秒的正向 detached 证据，立即投影 `recovery.id`、`recovery.required=true` 与 `reason=execution-detached`；无正向证据但持续等待超过 60 秒且队列等待终态时，投影 `reason=recovery-required`。超时只触发核查提示，不证明执行停止。运行中、离线及交互等待保留各自原因。投影不修改持久队列、不新增 RPC，也不自动放行后续消息。界面经二次确认调用 `editInstructionQueue({action:'recover',id,expectedRevision})`：先读原生历史并重新 inspect，不依赖 httpd 缓存；真实终态正常结算，否则仅允许 detached 的普通已接纳 turn 结束等待。原生仍运行、写锁占用/未知、未决提交或控制操作、命令及身份冲突均拒绝。恢复决策以 outcome=unknown、原 turn/attempt、节点证据和时间存入原 journal 的 instructionQueue.recoveries（最多64项，不自动淘汰），已接纳输入同时保存可用的原运行时证据；保存失败不移除队首。
 
 Codex rollout 的终态可能以仅含 id/status、items 为空的轮次返回；客户端仍按精确 ID 结算，不要求有助手正文。重开会话不能把缺失终态当完成；人工 unknown 恢复和后续暂停均从原 journal 恢复，保存失败保留原队首。
 
@@ -242,3 +242,16 @@ Codex rollout 的终态可能以仅含 id/status、items 为空的轮次返回�
 Project clients expose `executionSettings(project)` and `setExecution(project, {profile, variables})`. These negotiate `projectExecutionEnvironment` before calling the new node protocol. Profile summaries contain only ID, name and execution username; environment sources and mounts stay on the node. Updates use the original project revision and never automatically retry a mutation.
 
 NestOS node operations use the fixed Cells HTTP API (`/v1/capabilities`, `/v1/api/harness/*`, `/v1/api/projects/*`), independent of MCP initialization. Agent-facing scoped MCP 2.0 is provided by Cells separately. The exported clients are `CellsHarnessClient` and `CellsProjectClient`; no MCP transport aliases are provided.
+
+History pages can carry validated `recovery` metadata when the node skips damaged JSONL records. Conversation snapshots expose `historyRecovery` for a visible incomplete-history warning; loading older pages retains the warning. Partial pages remain readable but cannot settle queued instructions or command execution from historical projections. Native read-only inspection and exact live lifecycle evidence remain separate from display recovery. No source file is rewritten and no execution is replayed.
+
+### Cells restart recovery
+
+The node owns durable harness execution identities. A session may include bounded `executionRecovery.interruptedTurns` proofs linking an original request ID and turn ID to `CELLS_RESTARTED`. After clean history and a fresh authoritative detached inspection, the driver records the matching queue head as unknown and releases its barrier without replaying it. Existing queued input may proceed; an explicit user pause remains in force. Missing or mismatched proofs, partial history, pending submissions/controls and uncertain writer locks retain the manual recovery path. Reopening uses the same durable recovery record.
+
+
+### Node-owned native queues
+
+Project clients negotiate `projectHarnessQueue: 1` and `projectHarnessRecovery: 1`. `registerSession` transfers legacy queue ownership, `queueSession` accepts/edits/reads node-owned work, and `recoverSession` delegates recovery and persistent deduplication to Cells. The NestOS journal supplies these ports; its conversation runtime does not dispatch managed queues or decide automatic recovery. Nodes without the capabilities reject the operation rather than silently falling back to client-side recovery.
+
+Client journals retain drafts and client operation metadata; native queue bodies and queue command outputs are held by Cells. A closed view releases its client lease while node-owned work continues. Unknown replies retain the original instruction/request identity, and queued edits remain revision fenced.

@@ -54,3 +54,11 @@ it('negotiates execution settings and rejects malformed variables before mutatio
     await expect(old.executionSettings(project)).rejects.toMatchObject({code: 'ECAPABILITY'});
     expect(call).not.toHaveBeenCalled();
 });
+
+it('requires an explicit Cell capability before submitting selected project context',async()=>{
+ const call=vi.fn(async()=>({accepted:true})),input={cwd:'discussion',contextProjects:[{projectId:'p',revision:2}]};
+ const legacy=new CellsProjectClient({call,metadata:async()=>({projectChannelPaths:1}),close:vi.fn()});
+ await expect(legacy.channel(project,'open',input)).rejects.toMatchObject({code:'ECAPABILITY',remoteCode:'CELL_PROJECT_CONTEXT_REQUIRED'});expect(call).not.toHaveBeenCalled();
+ const current=new CellsProjectClient({call,metadata:async()=>({projectChannelPaths:1,projectContexts:1}),close:vi.fn()});
+ await current.channel(project,'open',input);expect(call).toHaveBeenCalledWith('project_channel_open',{...input,projectId:'p',revision:2},undefined);
+});

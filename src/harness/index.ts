@@ -1,6 +1,6 @@
 export type {HarnessTurnSubmissionEvidence} from './contracts';
 export type {HarnessWriterLock} from './contracts';
-export type { HarnessClient, HarnessCreateOptions, HarnessMutationOptions, HarnessExecutionRecovery, HarnessProfile, HarnessSession, HarnessPage, HarnessHistory, HarnessHistoryOptions, HarnessEventsOptions, HarnessEvent, HarnessEvents, HarnessReceipt } from './contracts';
+export type { HarnessClient, HarnessCreateOptions, HarnessMutationOptions, HarnessExecutionRecovery, HarnessProfile, HarnessSession, HarnessPage, HarnessHistoryRecovery, HarnessHistory, HarnessHistoryOptions, HarnessEventsOptions, HarnessEvent, HarnessEvents, HarnessReceipt } from './contracts';
 export type {HarnessInterruptRequest, HarnessControlRecord, HarnessControlProjection} from './control-ledger';
 export {validateControls} from './control-ledger';
 export { HarnessConversation } from './conversation';

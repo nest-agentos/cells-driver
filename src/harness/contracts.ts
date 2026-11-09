@@ -16,6 +16,7 @@ export interface HarnessWriterLock {
     owner?: {pid: number; uid?: number | null; processStartedAt?: number | null};
 }
 export interface HarnessExecutionRecovery {
+    interruptedTurns?: Array<{turnId: string; requestId: string; previousEpoch: string; recoveredAt: number; reason: 'CELLS_RESTARTED'}>;
     state: 'running' | 'detached' | 'unknown'; checkedAt: number;
     runtimeId: string; processId: number; childPid: number; runtimeStartedAt: number;
 }
@@ -53,12 +54,18 @@ export interface HarnessPage { sessions: HarnessSession[]; nextCursor: string | 
 export interface HarnessTurnSubmissionEvidence {
     version: 1; requestId: string; promptSha256: string; startSequence: number; endSequence: number;
 }
+/** Damage in the returned page; byte offsets refer to the unchanged source file. */
+export interface HarnessHistoryRecovery {
+    skippedRecords: number; skippedBytes: number; nulRecords: number;
+    invalidJsonRecords: number; invalidRecordRecords: number; firstOffset: number; lastOffset: number;
+}
 export interface HarnessHistory {
+    recovery?: HarnessHistoryRecovery;
     session: HarnessSession; turns: unknown[] | null; nextCursor?: string | null;
     /** Native snapshot boundary; resume events after the items already included in history. */
     eventCursor?: {after: number; eventEpoch: string};
 }
-export interface HarnessEventsOptions extends OperationOptions { toolDetail?: 'summary' }
+export interface HarnessEventsOptions extends OperationOptions { toolDetail?: 'summary';sessionId?:string }
 export interface HarnessHistoryOptions extends HarnessEventsOptions { cursor?: string }
 export interface HarnessReceipt { requestId: string; outcome: 'committed' | 'not-committed' | 'unknown'; result?: unknown; code?: string }
 export interface HarnessMutationOptions extends OperationOptions { requestId?: string; epoch?: string }
@@ -114,7 +121,7 @@ export interface HarnessClient {
     steer?(profileId: string, sessionId: string, turnId: string, prompt: string, options?: HarnessTurnOptions): Promise<{turnId: string; targetTurnId?: string}>;
     interrupt(profileId: string, sessionId: string, turnId: string, options?: HarnessMutationOptions): Promise<void>;
     respond(profileId: string, nativeRequestId: string | number, response: Record<string, unknown>, options?: HarnessMutationOptions): Promise<void>;
-    subscribe(profileId: string, listener: () => void): () => void;
+    subscribe(profileId: string, listener: () => void, sessionId?:string): () => void;
     eventSnapshot(profileId: string, cursor?: { after: number; eventEpoch: string }, options?: HarnessEventsOptions): Promise<HarnessEvents>;
     operation(profileId: string, requestId: string, options?: HarnessMutationOptions): Promise<HarnessReceipt>;
     close(): Promise<void>;

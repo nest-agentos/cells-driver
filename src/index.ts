@@ -46,3 +46,6 @@ export type {HarnessMetrics} from './harness/metrics';
 
 export {CellsHarnessClient} from './harness/client';
 export {CellsProjectClient} from './projects';
+
+export type {HarnessNodeRecoveryRequest, HarnessNodeRecoveryResult, HarnessNodeQueueRequest, HarnessNodeQueueCommand} from './harness/node-recovery';
+export {projectNodeQueue} from './harness/node-recovery';

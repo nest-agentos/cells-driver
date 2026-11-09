@@ -20,11 +20,14 @@ export interface HarnessInstruction {
     createdAt: number; dispatchedAt?: number; acceptedAt?: number; state: 'pending' | 'dispatching' | 'failed' | 'uncertain'; error?: string;
 }
 export interface HarnessAbandonedInstruction {
+    source?: 'system-restart';
     id: string; attemptId?: string; turnId: string; recoveredAt: number; outcome: 'unknown';
     originalExecution?: import('./contracts').HarnessExecutionRecovery;
     evidence: import('./contracts').HarnessExecutionRecovery;
 }
 export interface HarnessInstructionQueue {
+    owner?: 'cells';
+    commandResults?: import('./contracts').HarnessCommandRecord[];
     recoveries?: HarnessAbandonedInstruction[];
     revision: number; paused: boolean; items: HarnessInstruction[];
     receipts: Array<{id: string; input: string; turnId?: string; commandId?: string; kind?: 'steer'; createdAt?: number; dispatchedAt?: number; acceptedAt?: number}>;
@@ -34,7 +37,7 @@ export type HarnessQueueEdit = {expectedRevision: number} & (
     | {action: 'update'; id: string; text: string} | {action: 'reorder' | 'merge'; ids: string[]});
 export type HarnessQueueProjection = Omit<HarnessInstructionQueue, 'items' | 'receipts'> & {
     reason?: string;
-    recovery?: {id: string};
+    recovery?: {id: string; required?: boolean};
     acceptedIds: string[];
     submissions?: Array<{id: string; turnId?: string; commandId?: string; kind?: 'steer'; createdAt?: number; dispatchedAt?: number; acceptedAt?: number}>;
     items: Array<Omit<HarnessInstruction, 'attachments'> & {files: Array<{name: string}>}>;
@@ -43,6 +46,7 @@ type InstructionReceipt = Pick<NonNullable<HarnessConversationSnapshot['submissi
 type SubmissionReceipt = NonNullable<HarnessConversationSnapshot['submission']>;
 type TerminalResult = NonNullable<HarnessInstruction['terminal']>['result'];
 interface Ports {
+    remote?(): import('./conversation-journal').HarnessConversationJournal['instructions'];
     save(): Promise<void>;
     load(): Promise<HarnessInstructionQueue | undefined>;
     snapshot(): HarnessConversationSnapshot;
@@ -67,17 +71,13 @@ export class HarnessInstructionRuntime {
     }
     constructor(private readonly ports: Ports) {}
     restore(record: HarnessInstructionQueue = empty()): void {
-        validateQueue(record);
-        record.items.forEach(validateInstruction);
+        validateInstructionQueue(record);
         this.record = structuredClone(record);
         this.needsReload = false;
     }
     projection(observation?: HarnessObservation): HarnessQueueProjection {
         const reason = observation && this.reason(observation);
-        return {revision: this.record.revision, paused: this.record.paused, ...(reason ? {reason} : {}), acceptedIds: this.record.receipts.map(row => row.id),
-            recoveries: structuredClone(this.record.recoveries),
-            submissions: this.record.receipts.map(({id, turnId, commandId, kind, createdAt, dispatchedAt, acceptedAt}) => ({id, turnId, commandId, kind, createdAt, dispatchedAt, acceptedAt})),
-            items: this.record.items.map(({attachments, ...item}) => ({...structuredClone(item), files: attachments.map(({name}) => ({name}))}))};
+        return {...projectInstructionQueue(this.record), ...(reason ? {reason} : {})};
     }
     hasReceipt(id: string): boolean {return this.record.receipts.some(row => row.id === id);}
     private reason(observation: HarnessObservation): string | undefined {
@@ -101,6 +101,8 @@ export class HarnessInstructionRuntime {
     synchronize(): Promise<void> {return this.serialize(() => this.sync());}
     private async sync(): Promise<void> {if (this.needsReload) this.restore(await this.ports.load());}
     enqueue(item: HarnessInstruction): Promise<void> {
+        const remote=this.ports.remote?.();
+        if(remote)return this.serialize(async()=>this.restore(await remote.enqueue(structuredClone(item))));
         const captured = structuredClone(item), started = Date.now();
         return this.serialize(() => this.accept(captured)).catch(error => {this.log('accept', 'failed', started, captured.id, error); throw error;});
     }
@@ -116,24 +118,11 @@ export class HarnessInstructionRuntime {
         await this.commit({...this.record, items, receipts}, 'enqueue', item.id);
     }
     edit(edit: HarnessQueueEdit, binding?: {id?: string; revision?: string}): Promise<void> {
+        const remote=this.ports.remote?.();
+        if(remote)return this.serialize(async()=>this.restore(await remote.edit(structuredClone(edit),binding)));
         const captured = structuredClone(edit), started = Date.now();
         return this.serialize(() => this.change(captured,binding)).catch(error => {
             this.log(`edit.${captured.action}`, 'failed', started, 'id' in captured ? captured.id : undefined, error); throw error;
-        });
-    }
-    recover(edit: Extract<HarnessQueueEdit, {id: string}>, evidence: import('./contracts').HarnessExecutionRecovery): Promise<void> {
-        return this.serialize(async () => {
-            await this.sync();
-            if (edit.action !== 'recover' || validateExecutionRecovery(evidence)?.state !== 'detached') throw fail('Invalid native recovery evidence');
-            const item = this.record.items[0];
-            if (edit.expectedRevision !== this.record.revision || item?.id !== edit.id || item.state !== 'dispatching'
-                || !item.receipt?.turnId || item.steerTurnId || item.commandKind || item.receipt.resultError || item.terminal
-                || this.ports.completion(item.receipt.turnId)) throw fail('Instruction recovery changed; refresh before recovering');
-            const recovery: HarnessAbandonedInstruction = {id: item.id, attemptId: item.attemptId, turnId: item.receipt.turnId,
-                originalExecution: item.execution, recoveredAt: Date.now(), outcome: 'unknown', evidence: structuredClone(evidence)};
-            const recoveries = [...this.record.recoveries ?? [], recovery];
-            if (recoveries.length > 64) throw new FSError('EFBIG', 'Instruction recovery history is full');
-            await this.commit({...this.record, paused: true, recoveries, items: this.record.items.slice(1)}, 'recovery.abandoned', item.id);
         });
     }
     private async change(edit: HarnessQueueEdit, binding?: {id?: string; revision?: string}): Promise<void> {
@@ -217,6 +206,7 @@ export class HarnessInstructionRuntime {
     }
     /** Settle an admitted head only; receipt inspection never dispatches queued work. */
     async settleAccepted(id: string, snapshot: HarnessConversationSnapshot): Promise<boolean> {
+        if(this.ports.remote?.())return false;
         return this.serialize(async () => {
             await this.sync();
             const item = this.record.items[0], revision = this.record.revision;
@@ -227,6 +217,7 @@ export class HarnessInstructionRuntime {
         });
     }
     async pump(): Promise<void> {
+        if(this.ports.remote?.()){await this.reload();return;}
         if (this.pumping) return;
         this.pumping = true;
         try {await this.advance(); await this.supplement();}
@@ -461,8 +452,19 @@ function validateRecoveries(rows: HarnessAbandonedInstruction[] | undefined): vo
     for (const row of rows) {
         validateExecutionRecovery(row?.originalExecution);
         if (!row || !validId(row.id) || row.attemptId !== undefined && !validId(row.attemptId)
+            || row.source !== undefined && row.source !== 'system-restart'
             || typeof row.turnId !== 'string' || !row.turnId || row.turnId.length > 1024 || row.outcome !== 'unknown'
             || !Number.isSafeInteger(row.recoveredAt) || row.recoveredAt <= 0
             || validateExecutionRecovery(row.evidence)?.state !== 'detached') throw new FSError('EINVAL', 'Invalid instruction recovery record');
     }
 }
+
+export function validateInstructionQueue(record: HarnessInstructionQueue): void {
+    validateQueue(record);record.items.forEach(validateInstruction);
+}
+export function projectInstructionQueue(record: HarnessInstructionQueue): HarnessQueueProjection {
+        return {...(record.owner?{owner:record.owner}:{}),revision: record.revision, paused: record.paused, acceptedIds: record.receipts.map(row => row.id),
+            recoveries: structuredClone(record.recoveries),
+            submissions: record.receipts.map(({id, turnId, commandId, kind, createdAt, dispatchedAt, acceptedAt}) => ({id, turnId, commandId, kind, createdAt, dispatchedAt, acceptedAt})),
+            items: record.items.map(({attachments, ...item}) => ({...structuredClone(item), files: attachments.map(({name}) => ({name}))}))};
+    }
