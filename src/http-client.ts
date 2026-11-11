@@ -1,4 +1,5 @@
 import {FSError} from '@nestos/vfs-core';
+import {remoteCode} from './files/transport/errors';
 
 /** Fixed application transport; no MCP negotiation or tool discovery. */
 export class CellsHttpClient {
@@ -22,7 +23,7 @@ export class CellsHttpClient {
         if (!result.ok) {
             const error = result.error as {code?: unknown; outcome?: unknown};
             const code = typeof error?.code === 'string' && /^[A-Z][A-Z0-9_]{0,79}$/.test(error.code) ? error.code : 'CELLS_OPERATION_FAILED';
-            throw Object.assign(new FSError('EIO', code), {remoteCode: code, outcome: error?.outcome === 'not-committed' ? 'not-committed' : 'unknown'});
+            throw Object.assign(new FSError(remoteCode(code), code), {remoteCode: code, outcome: error?.outcome === 'not-committed' ? 'not-committed' : 'unknown'});
         }
         return result.value;
     }
@@ -36,7 +37,7 @@ export class CellsHttpClient {
         if (!response.ok) {
             const rawCode = (value as {code?: unknown})?.code;
             const code = typeof rawCode === 'string' && /^[A-Z][A-Z0-9_]{0,79}$/.test(rawCode) ? rawCode : undefined;
-            throw Object.assign(new FSError('EIO', typeof code === 'string' ? code : 'Cells request rejected'),
+            throw Object.assign(new FSError(remoteCode(code), typeof code === 'string' ? code : 'Cells request rejected'),
                 {remoteCode: typeof code === 'string' ? code : undefined, outcome: response.status < 500 ? 'not-committed' : 'unknown'});
         }
         return value;

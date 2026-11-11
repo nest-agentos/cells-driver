@@ -60,3 +60,5 @@ steer 的接纳回执不生成本地 steered: 用户消息；原生事件及历�
 executionRecovery 以节点实时原生状态与写锁为基准；超过60秒只展示人工恢复入口，不自动终结。recover 必须重新读历史/inspect，明确 detached 后按队列 CAS 将旧轮保存为 unknown 并暂停后续项；原运行时证据与恢复证据进入原 journal，不能伪造 terminal 或重放。无能力、未决提交/控制、占用与未知锁均拒绝。
 
 目录基础事实必须透传既有 `FileListOptions.fields: entry/stat`，`FileStorageAdapter.listEntries` 不得退回完整节点读取。路径类型检查使用独立的 entry 投影微批次（同一 stat 端点与契约），不得读取 revision、source identity 或扩展 metadata。对应 Cells 端须同时支持该字段投影；不保留协议探测失败后的完整读取兼容分支。
+
+固定 Cells HTTP API 保留已知文件/权限/占用错误分类及 remoteCode、真实 outcome；不将 EBUSY/ENOENT 等统一压成 EIO。不透明业务码保留在 remoteCode，未知接纳仍为 unknown，不自动重发修改。
