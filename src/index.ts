@@ -49,3 +49,5 @@ export {CellsProjectClient} from './projects';
 
 export type {HarnessNodeRecoveryRequest, HarnessNodeRecoveryResult, HarnessNodeQueueRequest, HarnessNodeQueueCommand} from './harness/node-recovery';
 export {projectNodeQueue} from './harness/node-recovery';
+
+export {harnessExecutionConstraints,type HarnessExecutionEvidence} from './harness/execution-constraints';
