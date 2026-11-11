@@ -1,4 +1,5 @@
-import {detachedExecution, freshDetachedExecution} from './execution-recovery';
+import {conversationPolicy} from './conversation-policy';
+import {freshDetachedExecution} from './execution-recovery';
 import {HarnessActivityTracker} from './activity';
 import {observeContextMetrics, validateMetrics, type HarnessMetrics} from './metrics';
 import {recoverHistoryCompletions} from './history-completion';
@@ -14,12 +15,12 @@ import type { HarnessClient, HarnessProfile, HarnessSession, HarnessEvents, Harn
 import { conversationBranches } from './branches';
 import { validateAttachments, validateDeletedSessionIds, validateSession } from './validation';
 import {readStoredAttachments, prepareTurnInput} from './attachments';
-import { applyHarnessStatus, harnessObservation, harnessArchiveAllowed } from './state';
+import { applyHarnessStatus, harnessObservation } from './state';
 import { ObservationErrors, connectionLost, type HarnessObservationError } from './observation-errors';
 import {validateSubmission, type HarnessConversationJournal} from './conversation-journal';
 import {forkReceipt, forkFailure, validateForkCheckpoint, validateForkReceipt, type ForkCheckpoint, type HarnessForkReceipt} from './forks';
 import { mergeMessages, historyMessages, nativeMessage, nativeRequest, type HarnessMessage, type HarnessRequest } from './conversation-model';
-import type {HarnessConversationActions, HarnessConversationSnapshot} from './conversation-snapshot';
+import type {HarnessConversationSnapshot} from './conversation-snapshot';
 import type {HarnessObservation} from './state';
 import {committedReceipt, decodeCommittedResult} from './committed-result';
 import {commandResultIssue, replaceCommandRecord, bindCommandOutput, projectCommandMessage, commandRecordMessage, commandOutputDiagnostic} from './command-records';
@@ -295,7 +296,7 @@ export class HarnessConversation implements HarnessConversationPort {
             messages: mergeMessages(this.messages, this.commandMessages()).map(m => projectCommandMessage(m, this.commandResults)), requests: this.requests.map(r => ({...r, responding: this.responses.some(p => p.id === r.id)})),
             hasEarlier: !!this.earlier,
             commandCatalogObservation: this.commandCatalogObservation ? {...this.commandCatalogObservation} : undefined,
-            queryReceipts: this.queries.receipts(), pendingQueryReports: this.queries.pendingReports(), controls: this.controls.projection(), instructionQueue: queue, canQueue: this.loaded && this.writable && !this.lifetime.signal.aborted && !this.deletedSessionIds.length && !this.session?.archived && !this.navigationSessionId && !this.forking && this.pending?.operation !== 'fork' && !!this.journal && !!this.session && (!!this.session.owned || this.profile.capabilities.resume),
+            queryReceipts: this.queries.receipts(), pendingQueryReports: this.queries.pendingReports(), controls: this.controls.projection(), instructionQueue: queue,
             ...actions, active, pending: observation.receiptUnknown, disconnected: observation.connection === 'offline', gap: this.gap};
     }
     private instructionQueueProjection(observation: HarnessObservation) {
@@ -314,36 +315,18 @@ export class HarnessConversation implements HarnessConversationPort {
         if (head.receipt.resultError || head.commandKind || head.steerTurnId || head.terminal || this.turnResults.has(head.receipt.turnId)) return;
         return head;
     }
-    private actions(observation: HarnessObservation): HarnessConversationActions {
-        const available = observation.connection === 'online' && !observation.stale;
-        const authorized = !this.deletedSessionIds.length && !this.lifetime.signal.aborted && this.writable && observation.connection === 'online';
-        const ready = authorized && this.loaded && !this.busy && !this.pending;
-        const dispatchReady = ready && !this.controls.blocksDispatch && !commandResultIssue(this.commandResults);
-        const manageable = dispatchReady && available && !!this.session && !this.instructions.record.items.length;
-        const inactive = !['running', 'waiting-approval', 'waiting-input'].includes(observation.execution);
-        const settled = inactive && !this.commandResults.some(row => row.status === 'running') && !observation.receiptUnknown && !this.requests.length && !this.session?.archived && !this.navigationSessionId;
-        const resumable = !!this.session?.resumable && (!!this.session?.owned || this.profile.capabilities.resume);
-        const create = !this.session && this.profile.capabilities.create;
-        const removable = observation.execution === 'idle' && !!this.session?.owned || !!this.session?.archived && this.session?.status === 'notLoaded';
-        return {
-            canQueryCommand: this.loaded && !this.lifetime.signal.aborted && !this.deletedSessionIds.length && !this.navigationSessionId
-                && !!this.session && !!this.profile.capabilities.commandQueries && !!this.client.queryCommand,
-            canCommand: ready && available && !this.refreshError && !!this.session && !this.session.archived && !!this.profile.capabilities.slashCommands,
-            canSteer: dispatchReady && available && !!this.journal && !!this.session?.owned && !!this.session.activeTurnId
-                && !this.session.archived && !this.navigationSessionId && !!this.profile.capabilities.steer && !!this.client.steer
-                && !this.turnResults.has(this.session.activeTurnId),
-            canSend: dispatchReady && settled && !this.refreshError && (create || available && resumable),
-            canFork: manageable && settled && this.messages.some(message => message.role === 'user' || message.role === 'assistant') && !!this.client.fork && !!this.profile.capabilities.fork && this.session?.forkable !== false,
-            canDelete: manageable && removable && !!this.client.delete && !!this.profile.capabilities.delete,
-            canRename: ready && available && !!this.session && !this.navigationSessionId && !!this.client.rename && !!this.profile.capabilities.rename,
-            canArchive: manageable && harnessArchiveAllowed(this.session) && !!this.client.archive && !!this.profile.capabilities.archive,
-            canUnarchive: manageable && !!this.session?.archived && !!this.client.archive && !!this.profile.capabilities.unarchive,
-            canInterrupt: authorized && this.loaded && available && !this.navigationSessionId && this.pending?.operation !== 'interrupt'
-                && !!this.session?.owned && !!this.session.activeTurnId && this.session.interruptible !== false && this.profile.capabilities.interrupt
-                && !this.turnResults.has(this.session.activeTurnId) && this.controls.canStart({sessionId: this.session.id, turnId: this.session.activeTurnId}),
-            canRespond: authorized && available && this.pending?.operation !== 'respond' && !!this.session?.owned && this.profile.capabilities.interactions
-                && this.requests.some(r => r.kind !== 'unsupported' && !this.responses.some(p => p.id === r.id)),
-        };
+    private actions(observation: HarnessObservation) {
+        const turnId = this.session?.activeTurnId;
+        return conversationPolicy({session: this.session, capabilities: this.profile.capabilities, client: this.client, observation,
+            loaded: this.loaded, writable: this.writable, closed: this.lifetime.signal.aborted, deleted: !!this.deletedSessionIds.length,
+            busy: this.busy, pending: !!this.pending, pendingOperation: this.pending?.operation,
+            navigating: !!this.navigationSessionId, forking: this.forking, durable: !!this.journal,
+            controlBlocked: this.controls.blocksDispatch, resultBlocked: !!commandResultIssue(this.commandResults),
+            commandRunning: this.commandResults.some(row => row.status === 'running'), queueLength: this.instructions.record.items.length,
+            hasMessages: this.messages.some(message => message.role === 'user' || message.role === 'assistant'),
+            turnCompleted: !!turnId && this.turnResults.has(turnId),
+            canInterrupt: !!this.session && !!turnId && this.controls.canStart({sessionId: this.session.id, turnId}),
+            requests: this.requests, respondingIds: this.responses.map(row => row.id)});
     }
     private async restore() {
         if (this.loaded) return;
@@ -709,7 +692,7 @@ export class HarnessConversation implements HarnessConversationPort {
     }
     private async recoverQueuedTerminal(): Promise<void> {
         const head = this.instructions.record.items[0], turnId = head?.receipt?.turnId;
-        if (!turnId || head.terminal || this.turnResults.has(turnId) || this.session?.status !== 'idle' && !detachedExecution(this.session)
+        if (!turnId || head.terminal || this.turnResults.has(turnId) || harnessObservation(this.session).execution !== 'idle'
             || this.session?.activeTurnId || Date.now() - this.terminalReadAt < 15_000) return;
         this.terminalReadAt = Date.now(); await this.read();
         try {console.info('[Harness] Turn recovery history', {operation: 'turn.history.reconcile', operationId: turnId,
@@ -945,7 +928,7 @@ export class HarnessConversation implements HarnessConversationPort {
     }
     private async mutate(action: () => Promise<void>) {
         this.busy = true;
-        try { await action(); } finally { this.busy = false; }
+        try { await action(); } finally { this.busy = false; this.notify(); }
         return this.snapshot();
     }
     async reconcileQuery(operationId: string): Promise<HarnessConversationSnapshot> {

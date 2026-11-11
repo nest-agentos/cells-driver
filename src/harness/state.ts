@@ -38,10 +38,16 @@ export function harnessObservation(session: HarnessSession | undefined, requests
     const waitingApproval = requests.some(r => r.kind === 'approval') || flags.includes('waitingOnApproval');
     const waitingInput = requests.some(r => r.kind === 'input') || flags.includes('waitingOnUserInput');
     const execution = waitingApproval ? 'waiting-approval' : waitingInput ? 'waiting-input'
-        : session?.activeTurnId || session?.status === 'active' ? 'running' : session?.status === 'idle' || detachedExecution(session) ? 'idle' : 'unknown';
+        : session?.activeTurnId || session?.status === 'active' ? 'running' : session?.status === 'idle' || settledNativeError(session) || detachedExecution(session) ? 'idle' : 'unknown';
     return {execution, scope: session?.owned ? 'controlled' : 'external', loaded: session?.loaded ?? (session?.status === 'notLoaded' ? false : session?.owned ? true : undefined), updatedAt: session?.updatedAt, rawStatus: session?.status ?? null, nativeError: session?.status === 'systemError', lastResult: session?.lastTurnResult,
         activeTurnId: session?.activeTurnId, owned: !!session?.owned, observedAt: Date.now(), source: 'history',
         connection: 'online', stale: false, receiptUnknown: false, canInterrupt: false, canRespond: false, ...evidence};
+}
+/** A failed turn is not an unknown execution when the node confirms its terminal head and released writer. */
+function settledNativeError(session:HarnessSession|undefined):boolean {
+    return session?.status==='systemError'&&session.owned===true&&session.loaded!==false&&!session.activeTurnId
+        &&!!session.lastTurnId&&['completed','failed','cancelled'].includes(session.lastTurnResult??'')
+        &&session.writerLock?.status==='not-held';
 }
 /** Only explicit lifecycle notifications can change execution; text deltas are not liveness evidence. */
 export function applyHarnessStatus(session: HarnessSession, message: HarnessEvent['message']): HarnessSession {

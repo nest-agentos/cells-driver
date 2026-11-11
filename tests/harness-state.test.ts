@@ -6,6 +6,14 @@ import type { HarnessClient, HarnessSession, HarnessEvents } from '../src/harnes
 
 const session: HarnessSession = {id: 's', title: 'Title', cwd: '/workspace', status: 'idle', updatedAt: 1, resumable: true, owned: false};
 const page: HarnessEvents = {epoch: 'e', cursor: 0, gap: false, events: [], requests: []};
+it('separates a confirmed failed native turn from execution eligibility without weakening unknown writer barriers',()=>{
+    const failed:HarnessSession={...session,status:'systemError',owned:true,loaded:true,lastTurnId:'failed-turn',lastTurnResult:'failed',writerLock:{status:'not-held',checkedAt:1}};
+    expect(harnessObservation(failed)).toMatchObject({execution:'idle',nativeError:true,lastResult:'failed'});
+    for(const missing of [{lastTurnId:undefined},{lastTurnResult:undefined},{owned:false},{writerLock:{status:'unknown',checkedAt:1}},{activeTurnId:'active-turn'}]){
+        const observation=harnessObservation({...failed,...missing} as HarnessSession);
+        expect(observation.execution).not.toBe('idle');
+    }
+});
 function fixture() {
     const client = {profiles: vi.fn(async () => ({epoch: 'e', profiles: [{id: 'p', projectRuntime: true, capabilities: {history: true}}]})),
         list: vi.fn(async () => ({sessions: [session], nextCursor: null})),

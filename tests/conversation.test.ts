@@ -797,6 +797,18 @@ it('rejects cyclic history cursors without overwriting already loaded history', 
     expect(view.snapshot().hasEarlier).toBe(true); await view.close();
 });
 
+it('publishes restored input availability when a native mutation finishes', async () => {
+    const client = peer(), managed = {...profile, capabilities: {...profile.capabilities, rename: true}};
+    client.subscribe = () => () => {};
+    client.rename = vi.fn(async (_p, _s, name) => ({session: {...session, title: name}}));
+    const view = new HarnessConversation(client, managed, 'p', 's'); await view.read();
+    const snapshots: boolean[] = [], stop = view.subscribe(() => snapshots.push(view.snapshot().canSend));
+    await view.rename('Updated');
+    expect(snapshots.length).toBeGreaterThan(0);
+    expect(snapshots.at(-1)).toBe(true);
+    stop(); await view.close();
+});
+
 it('renames and archives native metadata through receipts without resuming or sending', async () => {
     const client = peer(), managed = {...profile, capabilities: {...profile.capabilities, rename: true, archive: true, unarchive: true}};
     client.rename = vi.fn(async (_p, _s, name) => ({session: {...session, title: name}}));
