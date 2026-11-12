@@ -51,3 +51,5 @@ export type {HarnessNodeRecoveryRequest, HarnessNodeRecoveryResult, HarnessNodeQ
 export {projectNodeQueue} from './harness/node-recovery';
 
 export {harnessExecutionConstraints,type HarnessExecutionEvidence} from './harness/execution-constraints';
+
+export {harnessApprovalDecisions, resolveHarnessApprovalDecision} from './harness/approval';

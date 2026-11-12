@@ -37,3 +37,38 @@ it('persists unknown response receipts independently and never persists secret a
     client.eventSnapshot.mockResolvedValue({epoch: 'events', cursor: 2, gap: false, events: [], requests: []});
     expect((await reopened.reconcile()).requests).toEqual([]); expect(record!.responses).toEqual([]); await reopened.close();
 });
+
+const policyDecision = {acceptWithExecpolicyAmendment: {execpolicy_amendment: ['/bin/bash', '-lc', 'python3 script.py']}};
+const approvalRequest = {id: 'approval', method: 'item/commandExecution/requestApproval',
+    params: {threadId: 's', command: 'python3 script.py', availableDecisions: ['accept', policyDecision, 'cancel']}};
+it('preserves usable choices in mixed approvals and never replaces the command with raw protocol JSON', () => {
+    expect(nativeRequest(approvalRequest)[0]).toMatchObject({kind: 'approval', detail: 'python3 script.py',
+        decisions: ['accept', 'cancel'], unsupportedDecisionCount: 1});
+    expect(nativeRequest({...approvalRequest, params: {...approvalRequest.params, availableDecisions: ['accept', {futurePolicy: {}}, 'cancel']}})[0])
+        .toMatchObject({kind: 'approval', decisions: ['accept', 'cancel']});
+});
+it.each(['accept', 'cancel'])('forwards only the explicitly selected offered native choice %s', async decision => {
+    const client = fixture(); client.eventSnapshot.mockResolvedValue({epoch: 'events', cursor: 1, gap: false, events: [], requests: [approvalRequest]} as never);
+    const conversation = new HarnessConversation(client as never, profile, 'p', 's'); await conversation.read();
+    await conversation.respond('approval', {decision});
+    expect(client.respond).toHaveBeenCalledWith('codex', 'approval', {decision}, expect.anything());
+    await conversation.close();
+});
+it('rejects invented approval or modified policy before creating any native response', async () => {
+    const client = fixture(); client.eventSnapshot.mockResolvedValue({epoch: 'events', cursor: 1, gap: false, events: [], requests: [approvalRequest]} as never);
+    const conversation = new HarnessConversation(client as never, profile, 'p', 's'); await conversation.read();
+    await expect(conversation.respond('approval', {decision: 'acceptForSession'})).rejects.toMatchObject({code: 'EINVAL'});
+    await expect(conversation.respond('approval', {decision: {acceptWithExecpolicyAmendment: {execpolicy_amendment: ['/bin/bash']}}})).rejects.toMatchObject({code: 'EINVAL'});
+    expect(client.respond).not.toHaveBeenCalled(); expect(conversation.snapshot().requests).toHaveLength(1); await conversation.close();
+});
+
+it('does not expose mutable approval choices and fails closed when no advertised choice is supported', async () => {
+    const unsupported = nativeRequest({...approvalRequest, params: {...approvalRequest.params, availableDecisions: [policyDecision]}})[0];
+    expect(unsupported).toMatchObject({kind: 'unsupported', decisions: [], detail: 'python3 script.py'});
+    expect(unsupported.detail).not.toContain('availableDecisions');
+    const client = fixture(); client.eventSnapshot.mockResolvedValue({epoch: 'events', cursor: 1, gap: false, events: [], requests: [approvalRequest]} as never);
+    const conversation = new HarnessConversation(client as never, profile, 'p', 's');
+    const snapshot = await conversation.read(); snapshot.requests[0].decisions!.push('acceptForSession');
+    await expect(conversation.respond('approval', {decision: 'acceptForSession'})).rejects.toMatchObject({code: 'EINVAL'});
+    expect(client.respond).not.toHaveBeenCalled(); await conversation.close();
+});

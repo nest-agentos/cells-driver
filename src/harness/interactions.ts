@@ -1,4 +1,5 @@
 import type {HarnessEvent} from './contracts';
+import {harnessApprovalDecisions} from './approval';
 
 export interface HarnessQuestion {
     id: string; question: string; header?: string; multiSelect?: boolean; isSecret?: boolean; isOther?: boolean;
@@ -6,7 +7,7 @@ export interface HarnessQuestion {
 }
 export interface HarnessRequest {
     id: string | number; kind: 'approval' | 'input' | 'unsupported'; detail: string; title?: string;
-    questions?: HarnessQuestion[]; decisions?: string[]; responding?: boolean;
+    questions?: HarnessQuestion[]; decisions?: string[]; unsupportedDecisionCount?: number; responding?: boolean;
 }
 export function nativeRequest(request: HarnessEvent['message']): HarnessRequest[] {
     if (request.id === undefined) return [];
@@ -16,11 +17,11 @@ export function nativeRequest(request: HarnessEvent['message']): HarnessRequest[
     const questions = Array.isArray(params.questions) ? params.questions.map(question) : undefined;
     if (kind === 'input' && (!questions?.length || questions.some(q => !q) || new Set(questions.map(q => q?.id)).size !== questions.length)) kind = 'unsupported';
     const offered = params.decisions ?? params.availableDecisions;
-    const decisions = Array.isArray(offered) ? offered.filter((value): value is string => typeof value === 'string' && ['accept', 'acceptForSession', 'decline', 'cancel'].includes(value)) : undefined;
-    if (kind === 'approval' && Array.isArray(offered) && decisions?.length !== offered.length) kind = 'unsupported';
-    const detail = kind === 'unsupported' ? JSON.stringify(params, null, 2)
-        : ['reason', 'command', 'path', 'toolName'].flatMap(key => typeof params[key] === 'string' ? [params[key]] : []).join('\n');
-    return [{id: request.id, kind, detail, questions: questions?.filter((q): q is HarnessQuestion => !!q), decisions}];
+    const decisions = kind === 'approval' ? harnessApprovalDecisions(offered) : undefined;
+    const unsupportedDecisionCount = Array.isArray(offered) ? offered.filter(value => typeof value !== 'string' || !decisions?.includes(value)).length : 0;
+    if (kind === 'approval' && !decisions?.length) kind = 'unsupported';
+    const detail = ['reason', 'command', 'path', 'toolName'].flatMap(key => typeof params[key] === 'string' ? [params[key]] : []).join('\n');
+    return [{id: request.id, kind, detail, questions: questions?.filter((q): q is HarnessQuestion => !!q), decisions, unsupportedDecisionCount}];
 }
 function question(value: unknown): HarnessQuestion | undefined {
     if (!value || typeof value !== 'object') return;

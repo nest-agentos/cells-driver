@@ -1,3 +1,4 @@
+import {resolveHarnessApprovalDecision} from './approval';
 import {conversationPolicy} from './conversation-policy';
 import {freshDetachedExecution} from './execution-recovery';
 import {HarnessActivityTracker} from './activity';
@@ -293,7 +294,7 @@ export class HarnessConversation implements HarnessConversationPort {
             ...(this.profile.capabilities.fork !== undefined ? {forkSupport: this.profile.capabilities.checkpointFork ? 'turn' as const
                 : this.profile.capabilities.fork ? 'latest' as const : 'none' as const} : {}),
             ...(this.lastFork && !this.lastFork.verified ? {forkFailure: {...this.lastFork}} : {}),
-            messages: mergeMessages(this.messages, this.commandMessages()).map(m => projectCommandMessage(m, this.commandResults)), requests: this.requests.map(r => ({...r, responding: this.responses.some(p => p.id === r.id)})),
+            messages: mergeMessages(this.messages, this.commandMessages()).map(m => projectCommandMessage(m, this.commandResults)), requests: this.requests.map(r => ({...r, decisions: r.decisions?.slice(), responding: this.responses.some(p => p.id === r.id)})),
             hasEarlier: !!this.earlier,
             commandCatalogObservation: this.commandCatalogObservation ? {...this.commandCatalogObservation} : undefined,
             queryReceipts: this.queries.receipts(), pendingQueryReports: this.queries.pendingReports(), controls: this.controls.projection(), instructionQueue: queue,
@@ -900,6 +901,8 @@ export class HarnessConversation implements HarnessConversationPort {
         const request = this.requests.find(r => r.id === id && r.kind !== 'unsupported');
         if (this.lifetime.signal.aborted || !this.writable || this.pending?.operation === 'respond' || !this.session?.owned || !this.profile.capabilities.interactions || !request || this.responses.some(p => p.id === id))
             throw new FSError('EACCES', 'Interaction no longer pending or not owned');
+        const answer = request.kind === 'approval'
+            ? {decision: resolveHarnessApprovalDecision(request.decisions, response.decision)} : response;
         const epoch = (await this.client.profiles(this.options())).epoch;
         if (this.responses.some(p => p.id === id)) throw new FSError('EBUSY', 'Response already pending');
         const pending = {id, epoch, requestId: createRequestId()};
@@ -908,7 +911,7 @@ export class HarnessConversation implements HarnessConversationPort {
         try {
             await this.save();
             sent = true;
-            await this.client.respond(this.profile.id, id, response, {...this.options(), ...pending});
+            await this.client.respond(this.profile.id, id, answer, {...this.options(), ...pending});
             this.requests = this.requests.filter(r => r.id !== id);
             this.responses = this.responses.filter(p => p !== pending); await this.save();
         } catch (error) {

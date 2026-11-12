@@ -38,3 +38,5 @@ export type {HarnessDigestMessage, HarnessSessionDigest} from './digest';
 export {CellsHarnessClient} from './client';
 
 export {harnessExecutionConstraints,type HarnessExecutionEvidence} from './execution-constraints';
+
+export {harnessApprovalDecisions, resolveHarnessApprovalDecision} from './approval';
