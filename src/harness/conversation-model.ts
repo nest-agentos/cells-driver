@@ -12,7 +12,7 @@ export interface HarnessMessage {
     commandOutput?: import('./contracts').HarnessCommandOutput;
 }
 export {nativeRequest} from './interactions';
-export type {HarnessRequest} from './interactions';
+export type {HarnessRequest,HarnessApprovalContext} from './interactions';
 export function nativeMessage(value: unknown, fallback: string, turnId?: string, at?: number): HarnessMessage | undefined {
     if (!value || typeof value !== 'object') return;
     const item = value as Record<string, unknown>, type = String(item.type ?? '');

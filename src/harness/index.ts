@@ -5,7 +5,7 @@ export type {HarnessInterruptRequest, HarnessControlRecord, HarnessControlProjec
 export {validateControls} from './control-ledger';
 export { HarnessConversation } from './conversation';
 export type { HarnessConversationPort, HarnessConversationSnapshot } from './conversation';
-export type { HarnessMessage, HarnessRequest } from './conversation-model';
+export type { HarnessMessage, HarnessRequest, HarnessApprovalContext } from './conversation-model';
 export type { HarnessConversationJournal, HarnessRecovery } from './conversation-journal';
 export { harnessObservation, applyHarnessStatus, harnessArchiveAllowed } from './state';
 export type { HarnessObservation, HarnessExecutionState } from './state';

@@ -294,7 +294,7 @@ export class HarnessConversation implements HarnessConversationPort {
             ...(this.profile.capabilities.fork !== undefined ? {forkSupport: this.profile.capabilities.checkpointFork ? 'turn' as const
                 : this.profile.capabilities.fork ? 'latest' as const : 'none' as const} : {}),
             ...(this.lastFork && !this.lastFork.verified ? {forkFailure: {...this.lastFork}} : {}),
-            messages: mergeMessages(this.messages, this.commandMessages()).map(m => projectCommandMessage(m, this.commandResults)), requests: this.requests.map(r => ({...r, decisions: r.decisions?.slice(), responding: this.responses.some(p => p.id === r.id)})),
+            messages: mergeMessages(this.messages, this.commandMessages()).map(m => projectCommandMessage(m, this.commandResults)), requests: this.requests.map(r => ({...r,...(r.approval?{approval:{...r.approval}}:{}), decisions: r.decisions?.slice(), responding: this.responses.some(p => p.id === r.id)})),
             hasEarlier: !!this.earlier,
             commandCatalogObservation: this.commandCatalogObservation ? {...this.commandCatalogObservation} : undefined,
             queryReceipts: this.queries.receipts(), pendingQueryReports: this.queries.pendingReports(), controls: this.controls.projection(), instructionQueue: queue,

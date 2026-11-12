@@ -13,7 +13,7 @@ export type { DirectorySyncClient, DirectorySyncBinding, DirectorySyncInput, Dir
 export type { DirectorySyncDirection, DirectorySyncConflict, DirectorySyncComparison, SyncContentPreview } from './directory-sync';
 
 export { HarnessConversation } from './harness/conversation';
-export type { HarnessMessage, HarnessRequest } from './harness/conversation-model';
+export type { HarnessMessage, HarnessRequest, HarnessApprovalContext } from './harness/conversation-model';
 
 export type { HarnessConversationJournal, HarnessRecovery } from './harness/conversation-journal';
 

@@ -42,7 +42,7 @@ const policyDecision = {acceptWithExecpolicyAmendment: {execpolicy_amendment: ['
 const approvalRequest = {id: 'approval', method: 'item/commandExecution/requestApproval',
     params: {threadId: 's', command: 'python3 script.py', availableDecisions: ['accept', policyDecision, 'cancel']}};
 it('preserves usable choices in mixed approvals and never replaces the command with raw protocol JSON', () => {
-    expect(nativeRequest(approvalRequest)[0]).toMatchObject({kind: 'approval', detail: 'python3 script.py',
+    expect(nativeRequest(approvalRequest)[0]).toMatchObject({kind: 'approval', detail: '',approval:{kind:'command',command:'python3 script.py'},
         decisions: ['accept', 'cancel'], unsupportedDecisionCount: 1});
     expect(nativeRequest({...approvalRequest, params: {...approvalRequest.params, availableDecisions: ['accept', {futurePolicy: {}}, 'cancel']}})[0])
         .toMatchObject({kind: 'approval', decisions: ['accept', 'cancel']});
@@ -64,11 +64,31 @@ it('rejects invented approval or modified policy before creating any native resp
 
 it('does not expose mutable approval choices and fails closed when no advertised choice is supported', async () => {
     const unsupported = nativeRequest({...approvalRequest, params: {...approvalRequest.params, availableDecisions: [policyDecision]}})[0];
-    expect(unsupported).toMatchObject({kind: 'unsupported', decisions: [], detail: 'python3 script.py'});
+    expect(unsupported).toMatchObject({kind: 'unsupported', decisions: [], detail: '',approval:{command:'python3 script.py'}});
     expect(unsupported.detail).not.toContain('availableDecisions');
     const client = fixture(); client.eventSnapshot.mockResolvedValue({epoch: 'events', cursor: 1, gap: false, events: [], requests: [approvalRequest]} as never);
     const conversation = new HarnessConversation(client as never, profile, 'p', 's');
     const snapshot = await conversation.read(); snapshot.requests[0].decisions!.push('acceptForSession');
     await expect(conversation.respond('approval', {decision: 'acceptForSession'})).rejects.toMatchObject({code: 'EINVAL'});
     expect(client.respond).not.toHaveBeenCalled(); await conversation.close();
+});
+
+it('keeps explicit approval context separate from the human reason and ignores unrelated payload',()=>{
+ const command='python3 - <<\'PY\'\nprint("<script>not markup</script>")\nPY';
+ const row=nativeRequest({...approvalRequest,params:{...approvalRequest.params,title:'Update browser verification',reason:'May I update the verification script?',command,cwd:'/project',path:'/project/verify.mjs',unrelated:'not presentation'}})[0];
+ expect(row).toMatchObject({title:'Update browser verification',detail:'May I update the verification script?',approval:{kind:'command',reason:'May I update the verification script?',command,cwd:'/project',path:'/project/verify.mjs'}});
+ expect(row.detail).not.toContain(command);expect(JSON.stringify(row)).not.toContain('not presentation');
+});
+it('does not infer an approval reason or file path from shell contents',()=>{
+ const row=nativeRequest({...approvalRequest,params:{...approvalRequest.params,reason:{unexpected:true},command:'rm -rf /some/path'}})[0];
+ expect(row.detail).toBe('');expect(row.approval).toMatchObject({kind:'command',command:'rm -rf /some/path'});
+ expect(row.approval?.reason).toBeUndefined();expect(row.approval?.path).toBeUndefined();
+});
+it('preserves file approval identity and isolates context snapshots from caller mutation',async()=>{
+ const file={...approvalRequest,method:'item/fileChange/requestApproval',params:{...approvalRequest.params,path:'/project/file.ts',reason:'Update the requested view'}};
+ const client=fixture();client.eventSnapshot.mockResolvedValue({epoch:'events',cursor:1,gap:false,events:[],requests:[file]} as never);
+ const conversation=new HarnessConversation(client as never,profile,'p','s');const first=await conversation.read();
+ expect(first.requests[0]).toMatchObject({approval:{kind:'file-change',path:'/project/file.ts',reason:'Update the requested view'}});
+ first.requests[0].approval!.path='/other';expect(conversation.snapshot().requests[0].approval?.path).toBe('/project/file.ts');
+ await conversation.close();
 });

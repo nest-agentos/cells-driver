@@ -5,7 +5,11 @@ export interface HarnessQuestion {
     id: string; question: string; header?: string; multiSelect?: boolean; isSecret?: boolean; isOther?: boolean;
     options?: Array<{label: string; description?: string}>;
 }
+export interface HarnessApprovalContext {
+    kind:'command'|'file-change';reason?:string;command?:string;path?:string;cwd?:string;toolName?:string;
+}
 export interface HarnessRequest {
+    approval?:HarnessApprovalContext;
     id: string | number; kind: 'approval' | 'input' | 'unsupported'; detail: string; title?: string;
     questions?: HarnessQuestion[]; decisions?: string[]; unsupportedDecisionCount?: number; responding?: boolean;
 }
@@ -20,8 +24,10 @@ export function nativeRequest(request: HarnessEvent['message']): HarnessRequest[
     const decisions = kind === 'approval' ? harnessApprovalDecisions(offered) : undefined;
     const unsupportedDecisionCount = Array.isArray(offered) ? offered.filter(value => typeof value !== 'string' || !decisions?.includes(value)).length : 0;
     if (kind === 'approval' && !decisions?.length) kind = 'unsupported';
-    const detail = ['reason', 'command', 'path', 'toolName'].flatMap(key => typeof params[key] === 'string' ? [params[key]] : []).join('\n');
-    return [{id: request.id, kind, detail, questions: questions?.filter((q): q is HarnessQuestion => !!q), decisions, unsupportedDecisionCount}];
+    const approval=approvalContext(request);
+    const detail=approval?approval.reason??'':['reason','command','path','toolName'].flatMap(key=>typeof params[key]==='string'?[params[key]]:[]).join('\n');
+    const title=typeof params.title==='string'?params.title:undefined;
+    return [{id: request.id, kind, detail, title,...(approval?{approval}:{}), questions: questions?.filter((q): q is HarnessQuestion => !!q), decisions, unsupportedDecisionCount}];
 }
 function question(value: unknown): HarnessQuestion | undefined {
     if (!value || typeof value !== 'object') return;
@@ -34,4 +40,12 @@ function question(value: unknown): HarnessQuestion | undefined {
     return {id: q.id, question: q.question, header: typeof q.header === 'string' ? q.header : undefined,
         multiSelect: q.multiSelect as boolean | undefined, isSecret: q.isSecret as boolean | undefined,
         isOther: q.isOther as boolean | undefined, options: options?.map(o => ({label: o.label, description: o.description}))};
+}
+
+/** Copy only explicit protocol context; shell contents never imply purpose or authorization scope. */
+function approvalContext(request:HarnessEvent['message']):HarnessApprovalContext|undefined {
+    const kind=request.method==='item/commandExecution/requestApproval'?'command':request.method==='item/fileChange/requestApproval'?'file-change':undefined;
+    if(!kind)return;
+    const params=request.params??{},text=(key:string)=>typeof params[key]==='string'?params[key] as string:undefined;
+    return {kind,reason:text('reason'),command:text('command'),path:text('path'),cwd:text('cwd'),toolName:text('toolName')};
 }
