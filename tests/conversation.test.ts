@@ -7,6 +7,50 @@ import { historyMessages, mergeMessages } from '../src/harness/conversation-mode
 import { toolSummary } from '../src/harness/tool-summary';
 const profile: HarnessProfile = {id:'codex', kind:'codex', projectRuntime:true, workspaces:[{id:'p'}], capabilities:{history:true,create:true,resume:true,interrupt:true,interactions:true}};
 const session = {id:'s', title:'Title', cwd:'/projects/p', status:'idle', updatedAt:1, resumable:true, owned:true};
+it('submits first input as one node operation and publishes no provisional native identity', async () => {
+    const client=peer();let record:HarnessRecovery|undefined;
+    const submit=vi.fn(async()=>({session:{...session},turnId:'first-turn'}));
+    const journal={epoch:'e',load:async()=>record,save:async(value:HarnessRecovery)=>{record=structuredClone(value);},firstInput:{submit,operation:vi.fn()}};
+    const view=new HarnessConversation(client,profile,'p',undefined,true,journal);
+    await view.read();expect(client.create).not.toHaveBeenCalled();
+    expect(await view.send('First',[],undefined,'first-operation')).toMatchObject({sessionId:'s',submittedTurnId:'first-turn',pending:false,draft:''});
+    expect(submit).toHaveBeenCalledWith({requestId:'first-operation',prompt:'First',attachments:[],selection:undefined});
+    expect(client.create).not.toHaveBeenCalled();expect(client.turn).not.toHaveBeenCalled();
+    expect(record).toMatchObject({sessionId:'s',submission:{id:'first-operation',status:'accepted'}});await view.close();
+});
+it('rejected first input leaves no native session and an explicit retry uses the same draft', async () => {
+    const client=peer();let record:HarnessRecovery|undefined;
+    const submit=vi.fn().mockRejectedValueOnce({outcome:'not-committed',code:'EINVAL'}).mockResolvedValue({session:{...session},turnId:'retry-turn'});
+    const journal={epoch:'e',load:async()=>record,save:async(value:HarnessRecovery)=>{record=structuredClone(value);},firstInput:{submit,operation:vi.fn()}};
+    const view=new HarnessConversation(client,profile,'p',undefined,true,journal);await view.read();
+    await expect(view.send('First',[],undefined,'failed-operation')).rejects.toMatchObject({outcome:'not-committed'});
+    expect(view.snapshot()).toMatchObject({sessionId:undefined,pending:false,canSend:true});expect(record?.sessionId).toBeUndefined();
+    expect(await view.send('First',[],undefined,'retry-operation')).toMatchObject({sessionId:'s',submittedTurnId:'retry-turn'});
+    expect(submit).toHaveBeenCalledTimes(2);expect(client.create).not.toHaveBeenCalled();await view.close();
+});
+it('reopening an unknown first input queries the original node operation without creating or resending',async()=>{
+    const client=peer();let record:HarnessRecovery|undefined;
+    const submit=vi.fn().mockRejectedValue({outcome:'unknown'});
+    const operation=vi.fn(async(requestId:string)=>({requestId,outcome:'committed' as const,result:{session:{...session},turnId:'first-turn'}}));
+    const journal={epoch:'e',load:async()=>record,save:async(value:HarnessRecovery)=>{record=structuredClone(value);},firstInput:{submit,operation}};
+    let view=new HarnessConversation(client,profile,'p',undefined,true,journal);await view.read();
+    await expect(view.send('First',[],undefined,'original-operation')).rejects.toMatchObject({outcome:'unknown'});await view.close();
+    view=new HarnessConversation(client,profile,'p',undefined,true,journal);await view.read();
+    expect(await view.reconcile('original-operation')).toMatchObject({sessionId:'s',pending:false,submittedTurnId:'first-turn',draft:''});
+    expect(operation).toHaveBeenCalledWith('original-operation');expect(submit).toHaveBeenCalledOnce();expect(client.operation).not.toHaveBeenCalled();await view.close();
+});
+it('creates a prompt-command conversation through the same first-input authority',async()=>{
+    const client=peer();let record:HarnessRecovery|undefined;
+    const prompt={name:'fixture-skill',kind:'prompt' as const,description:'Fixture',id:'skill',revision:'v1'};
+    client.commands=vi.fn(async()=>[prompt]);client.command=vi.fn();
+    const submit=vi.fn(async()=>({session:{...session},turnId:'command-first',commandId:'native-command'}));
+    const journal={epoch:'e',load:async()=>record,save:async(value:HarnessRecovery)=>{record=structuredClone(value);},firstInput:{submit,operation:vi.fn()}};
+    const capable={...profile,capabilities:{...profile.capabilities,slashCommands:true}};
+    const view=new HarnessConversation(client,capable,'p',undefined,true,journal);await view.read();
+    expect(await view.command('fixture-skill','synthetic',undefined,undefined,'command-first-operation')).toMatchObject({sessionId:'s',submittedTurnId:'command-first',pending:false});
+    expect(submit).toHaveBeenCalledWith(expect.objectContaining({requestId:'command-first-operation',command:{name:'fixture-skill',arguments:'synthetic',expectedCommand:{id:'skill',revision:'v1'}}}));
+    expect(client.create).not.toHaveBeenCalled();expect(client.command).not.toHaveBeenCalled();await view.close();
+});
 const queryCommand = {name: 'session:status', description: 'State', kind: 'action' as const, execution: 'query' as const, revision: 'state-v1'};
 const queryProfile = {...profile, capabilities: {...profile.capabilities, slashCommands: true, commandQueries: true}};
 

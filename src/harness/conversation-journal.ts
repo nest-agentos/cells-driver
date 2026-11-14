@@ -19,6 +19,11 @@ export interface HarnessRecovery {
         forkCheckpoint?: import('./forks').ForkCheckpoint};
 }
 export interface HarnessConversationJournal {
+    firstInput?: {
+        submit(input: {requestId: string; prompt: string; attachments: HarnessAttachment[]; selection?: import('./contracts').HarnessModelSelection;
+            command?: {name: string; arguments: string; expectedCommand?: {id?: string; revision?: string}}}): Promise<{session: import('./contracts').HarnessSession; turnId: string} & import('./contracts').HarnessCommandResult>;
+        operation(requestId: string): Promise<import('./contracts').HarnessReceipt>;
+    };
     instructions?: {
         enqueue(item: import('./instruction-queue').HarnessInstruction): Promise<import('./instruction-queue').HarnessInstructionQueue>;
         edit(edit: import('./instruction-queue').HarnessQueueEdit, binding?: {id?:string;revision?:string}): Promise<import('./instruction-queue').HarnessInstructionQueue>;

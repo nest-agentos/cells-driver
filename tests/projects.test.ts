@@ -88,3 +88,17 @@ it('leaves MCP endpoint resolution to current Cells nodes while retaining legacy
  }
  expect(input.endpoint).toBe('http://host-forwarded:18787/v1/channel/mcp');
 });
+
+it('requires Cells-owned drafts and sends the exact project revision without allocating a conversation locally', async () => {
+    const record = {version: 1, id: 'cells-draft', state: 'draft', data: ''};
+    const call = vi.fn(async () => ({record}));
+    const old = new CellsProjectClient({call, metadata: async () => ({}), close: vi.fn()});
+    await expect(old.draft(project, {action: 'open'})).rejects.toMatchObject({code: 'ECAPABILITY'});
+    expect(call).not.toHaveBeenCalled();
+    expect(await old.draft(project, {action: 'resolve', profileId: 'codex', sessionId: 'old-session'})).toEqual({conversationId: null});
+    const current = new CellsProjectClient({call, metadata: async () => ({projectDrafts: 1}), close: vi.fn()});
+    expect(await current.draft(project, {action: 'open'})).toEqual({record});
+    expect(call).toHaveBeenCalledExactlyOnceWith('project_draft', {action: 'open', projectId: 'p', revision: 2, requestId: expect.any(String)}, undefined);
+    call.mockResolvedValueOnce({record: {...record, id: '../invalid'}});
+    await expect(current.draft(project, {action: 'open'})).rejects.toThrow('Invalid Cells draft record');
+});

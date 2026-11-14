@@ -53,3 +53,5 @@ export {projectNodeQueue} from './harness/node-recovery';
 export {harnessExecutionConstraints,type HarnessExecutionEvidence} from './harness/execution-constraints';
 
 export {harnessApprovalDecisions, resolveHarnessApprovalDecision} from './harness/approval';
+
+export type {CellsDraftRecord, CellsDraftPromotion, CellsDraftResult} from './projects';

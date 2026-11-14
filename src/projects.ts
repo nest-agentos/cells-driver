@@ -1,3 +1,4 @@
+import {requestId} from './files/request-id';
 import {validateNodeRecovery, validateNodeQueue, type HarnessNodeRecoveryRequest, type HarnessNodeRecoveryResult, type HarnessNodeQueueRequest} from './harness/node-recovery';
 import {validateAuthorization, validateProjectCapabilities, type RemoteAuthorization, type RemoteProjectCapabilities} from './authorization';
 import { MCPDirectorySyncClient, type DirectorySyncClient } from './directory-sync';
@@ -16,7 +17,22 @@ export interface RemoteProject {
 }
 export interface RegisterProject { id?: string; name: string; alias: string; path: string; access: 'ro' | 'rw'; mounts?: ProjectMount[]; createDirectory?: boolean }
 export interface ProjectProcess { state: string; stdout: string; stderr: string; code: number | null; error: string | null; truncated: boolean }
+export interface CellsDraftRecord {
+    version: 1; id: string; state: 'draft' | 'submitting'; data: string;
+    sessionId?: string; submissionId?: string; title?: string; attachmentScopeId?: string; harnessConnectionId?: string;
+    submissionDraftHash?: string; remoteTarget?: {connectionId: string; serverProjectId: string; principalId?: string; profileId: string};
+}
+export interface CellsDraftPromotion {
+    draftId: string; nextDraftId: string; submissionId: string;
+    remoteTarget?: CellsDraftRecord['remoteTarget']; nativeSessionId?: string; turnId?: string;
+}
+export interface CellsDraftResult {receipt?: import('./harness/contracts').HarnessReceipt; conversationId?: string | null; record?: CellsDraftRecord; promotion?: CellsDraftPromotion | null; value?: string | null; stored?: boolean}
 export interface ProjectClient {
+    draft?(project: Pick<RemoteProject, 'id' | 'revision'>, input: {action: 'submit' | 'submission' | 'open' | 'save' | 'begin' | 'promote' | 'promotion' | 'reset' | 'asset_put' | 'asset_read' | 'commit_session' | 'resolve';
+        operationId?: string; prompt?: string; attachments?: import('./harness/contracts').HarnessAttachment[]; selection?: import('./harness/contracts').HarnessModelSelection;
+        command?: {name: string; arguments: string; expectedCommand?: {id?: string; revision?: string}};
+        sessionId?: string; harnessConnectionId?: string; submissionId?: string; draftId?: string; expectedData?: string; data?: string; title?: string; target?: CellsDraftRecord['remoteTarget'];
+        namespace?: string; profileId?: string; assetId?: string; part?: number; value?: string}, options?: OperationOptions): Promise<CellsDraftResult>;
     queueSession?(project:RemoteProject,input:HarnessNodeQueueRequest,options?:OperationOptions):Promise<import('./harness/instruction-queue').HarnessInstructionQueue>;
     registerSession?(project: RemoteProject, input: {namespace:string;profileId:string;sessionId:string}, options?: OperationOptions): Promise<boolean>;
     recoverSession?(project: RemoteProject, input: HarnessNodeRecoveryRequest, options?: OperationOptions): Promise<HarnessNodeRecoveryResult>;
@@ -39,6 +55,21 @@ export interface ProjectClient {
     close(): Promise<void>;
 }
 export class CellsProjectClient implements ProjectClient {
+    async draft(project: Pick<RemoteProject, 'id' | 'revision'>, input: Parameters<NonNullable<ProjectClient['draft']>>[1], options?: OperationOptions): Promise<CellsDraftResult> {
+        const meta = await this.rpc.metadata?.(options);
+        if (input.action === 'resolve' && meta?.projectDrafts !== 1) return {conversationId: null};
+        if (meta?.projectDrafts !== 1) throw new FSError('ECAPABILITY', 'Project drafts require an updated Cells node');
+        if (['submit','submission'].includes(input.action) && meta?.projectDraftFirstInput !== 1) throw new FSError('ECAPABILITY', 'First-input submission requires an updated Cells node');
+        const value = await this.rpc.call('project_draft', {...input, requestId: requestId(), projectId: project.id, revision: project.revision}, options) as CellsDraftResult;
+        if (!value || typeof value !== 'object') throw new FSError('EIO', 'Invalid Cells draft response');
+        if (value.conversationId !== undefined && value.conversationId !== null && (typeof value.conversationId !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(value.conversationId))) throw new FSError('EIO', 'Invalid Cells conversation identity');
+        if (value.record && (value.record.version !== 1 || typeof value.record.id !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(value.record.id)
+            || !['draft', 'submitting'].includes(value.record.state) || typeof value.record.data !== 'string')) throw new FSError('EIO', 'Invalid Cells draft record');
+        if (value.promotion && [value.promotion.draftId, value.promotion.nextDraftId, value.promotion.submissionId,
+            ].some(id => typeof id !== 'string' || !id)) throw new FSError('EIO', 'Invalid Cells draft promotion');
+        return value;
+    }
+
     async channel(project: RemoteProject, operation: 'open' | 'messages' | 'close' | 'requests' | 'respond' | 'current' | 'acknowledge', input: Record<string, unknown>, options?: OperationOptions): Promise<unknown> {
         let request = input;
         if (operation === 'open' || operation === 'current') {

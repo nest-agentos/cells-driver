@@ -186,6 +186,13 @@ export class HarnessConversation implements HarnessConversationPort {
         const submission = {inputText: text, draftRevision: this.draftRevision, ...(queued ? {consumeDraft: false as const} : {})};
         this.submittedTurnId = undefined;
         return this.mutate(async () => {
+            if (!this.session && this.journal?.firstInput) {
+                await this.native('first-command', options => this.journal!.firstInput!.submit({requestId: options.requestId!, prompt: text, attachments: [], selection: selected,
+                    command: {name, arguments: args, expectedCommand: {id: command.id, revision: command.revision}}}), submission, result => {
+                    this.session = validateSession(result.session); this.acceptCommand(result, text);
+                });
+                return;
+            }
             if (command.execution !== 'query') await this.prepareSession();
             await this.native('command', options => this.client.command!(this.profile.id, this.session!.id, name, args,
                 {...options, ...(command.id || command.revision ? {expectedCommand: {id: command.id,revision: command.revision}} : {}), ...(selected ? {selection: selected} : {})}), submission, result => this.acceptCommand(result, text));
@@ -502,7 +509,7 @@ export class HarnessConversation implements HarnessConversationPort {
     private async native<T>(operation: string, call: (options: import('./contracts').HarnessMutationOptions) => Promise<T>,
         submission?: {inputText: string; draftRevision: number; consumeDraft?: false; turnId?: string}, committed?: (result: T) => void, forkCheckpoint?: ForkCheckpoint): Promise<T> {
         const epoch = (await this.client.profiles(this.options())).epoch;
-        const requestId = ['turn', 'steer', 'command'].includes(operation) && this.submission?.status === 'pending' ? this.submission.id : createRequestId();
+        const requestId = ['first', 'first-command', 'turn', 'steer', 'command'].includes(operation) && this.submission?.status === 'pending' ? this.submission.id : createRequestId();
         this.pending = {requestId, epoch, operation, ...submission, ...(forkCheckpoint ? {forkCheckpoint} : {})};
         const started = Date.now(); let stage = 'persist-intent', failure: unknown;
         try {
@@ -513,7 +520,7 @@ export class HarnessConversation implements HarnessConversationPort {
             const session = (result as {session?: HarnessSession} | undefined)?.session;
             if (operation === 'delete') this.deletedSessionIds = (result as {deletedSessionIds: string[]}).deletedSessionIds;
             decodeCommittedResult({requestId, outcome: 'committed', result}, () => committed?.(result));
-            if (operation === 'turn' || operation === 'steer' || operation === 'command' && !this.draftAttachments.length) this.acceptDraft(this.pending);
+            if (operation === 'first' || operation === 'turn' || operation === 'steer' || ['first-command','command'].includes(operation) && !this.draftAttachments.length) this.acceptDraft(this.pending);
             const pending = this.pending; this.pending = undefined;
             try { await this.save(operation === 'fork' ? this.session?.id : session?.id ?? this.session?.id); } catch (error) { this.pending = pending; throw error; }
             return result;
@@ -817,6 +824,14 @@ export class HarnessConversation implements HarnessConversationPort {
         this.startSubmission(submissionId);
         const submission = {inputText: text, draftRevision: this.draftRevision, ...(queued ? {consumeDraft: false as const} : {})};
         return this.mutate(async () => {
+            if (!this.session && this.journal?.firstInput) {
+                await this.native('first', options => this.journal!.firstInput!.submit({requestId: options.requestId!, prompt, attachments: prepared, selection: selected}), submission, result => {
+                    this.session = validateSession(result.session); this.submittedTurnId = result.turnId; this.acceptSubmission(result.turnId);
+                    if (!this.completed.has(result.turnId)) {this.session.activeTurnId = result.turnId; this.session.status = 'active';}
+                    this.replace({id: `submitted:${result.turnId}`, role: 'user', text: text.trim() ? text : prompt, turnId: result.turnId, timestamp: Date.now()});
+                });
+                return;
+            }
             await this.prepareSession();
             await this.native('turn', options => this.client.turn(this.profile.id, this.session!.id, prompt,
                 {...options, ...(selected ? {selection: selected} : {}), ...(prepared.length ? {attachments: prepared} : {})}), submission, ({turnId}) => {
@@ -962,22 +977,24 @@ export class HarnessConversation implements HarnessConversationPort {
             return this.readReconciled();
         }
         if (submissionId && this.submission?.id !== submissionId) return this.snapshot();
-        const receipt = await this.client.operation(this.profile.id, this.pending.requestId, {...this.options(), epoch: this.pending.epoch});
+        const receipt = ['first','first-command'].includes(this.pending.operation) && this.journal?.firstInput
+            ? await this.journal.firstInput.operation(this.pending.requestId)
+            : await this.client.operation(this.profile.id, this.pending.requestId, {...this.options(), epoch: this.pending.epoch});
         if (receipt.requestId !== this.pending.requestId) throw new FSError('EIO', 'Mismatched harness receipt');
         if (receipt.outcome === 'unknown') return this.snapshot();
         const result = receipt.result as {session?: HarnessSession; turnId?: string; targetTurnId?: string; deletedSessionIds?: string[]} | undefined;
         if (receipt.outcome === 'committed') {
-            if (['create', 'resume', 'rename', 'archive', 'unarchive'].includes(this.pending.operation)) this.session = validateSession(result?.session);
+            if (['first', 'first-command', 'create', 'resume', 'rename', 'archive', 'unarchive'].includes(this.pending.operation)) this.session = validateSession(result?.session);
             if (this.pending.operation === 'delete') {
                 this.deletedSessionIds = validateDeletedSessionIds(result?.deletedSessionIds, this.session!.id); this.messages = []; this.requests = [];
                 this.commandResults = []; this.setDraft('', []);
             }
             if (this.pending.operation === 'fork') this.acceptFork(result, this.pending.forkCheckpoint);
-            if (this.pending.operation === 'command') {
+            if (['first-command','command'].includes(this.pending.operation)) {
                 if (!await this.applyCommandReceipt(receipt, this.pending.inputText ?? '')) return this.snapshot();
                 if (!this.draftAttachments.length) this.acceptDraft(this.pending);
             }
-            if (this.pending.operation === 'turn' || this.pending.operation === 'steer') {
+            if (['first', 'turn', 'steer'].includes(this.pending.operation)) {
                 if (this.pending.operation === 'steer' && (result?.targetTurnId ?? result?.turnId) !== this.pending.turnId) throw new FSError('EIO', 'Mismatched native steering receipt');
                 if (typeof result?.turnId !== 'string') throw new FSError('EIO', 'Invalid turn receipt');
                 this.submittedTurnId = result.turnId;
