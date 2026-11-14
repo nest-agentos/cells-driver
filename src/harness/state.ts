@@ -5,6 +5,7 @@ export type { HarnessObservationError } from './observation-errors';
 
 export type HarnessExecutionState = 'unknown' | 'idle' | 'running' | 'waiting-approval' | 'waiting-input';
 export interface HarnessObservation {
+    interactionIds?:string[];
     historyRevision?: string;
     activity?: import('./activity').HarnessActivity;
     execution: HarnessExecutionState;

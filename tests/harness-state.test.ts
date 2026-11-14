@@ -230,3 +230,11 @@ it.each(['ECONNRESET', 'EIO', 'EACCES', 'REQUEST_TIMEOUT'])('classifies list fai
         expect(recovered.refreshError).toBeUndefined();
     } finally {await observer.close();}
 });
+
+it('exports stable pending interaction identities without including approval command contents',async()=>{
+ const f=fixture();f.client.eventSnapshot=vi.fn(async()=>({...page,requests:[{id:0,method:'item/commandExecution/requestApproval',params:{threadId:'s',command:'PRIVATE_COMMAND',decisions:['accept','cancel']}}]}));
+ const first=(await f.observer.refresh())[0].observation;
+ expect(first.execution).toBe('waiting-approval');expect(first.interactionIds).toEqual([JSON.stringify(['e','number',0,'approval'])]);
+ expect(JSON.stringify(first.interactionIds)).not.toContain('PRIVATE_COMMAND');
+ expect((await f.observer.refresh())[0].observation.interactionIds).toEqual(first.interactionIds);await f.observer.close();
+});

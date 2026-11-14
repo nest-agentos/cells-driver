@@ -173,6 +173,7 @@ export class HarnessStatusObserver implements HarnessStatusPort {
             const prior = state.observations.get(id)!;
             const fresh = changed.has(id) || requests.length > 0, observedAt = fresh ? this.now() : prior.observedAt;
             const observation = harnessObservation(session, requests, {observedAt,
+                interactionIds:requests.map(request=>JSON.stringify([page.epoch,typeof request.id,request.id,request.kind])).sort(),
                 source: fresh ? 'events' : prior.source, stale: this.now() - observedAt > 30_000,
                 ...(prior.refreshError?.code === 'LIST_TRUNCATED' && !fresh ? {stale: true, refreshError: prior.refreshError} : {}),
                 connection: state.nativeDisconnected.has(id) ? 'offline' : 'online'});
