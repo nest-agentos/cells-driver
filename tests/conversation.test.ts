@@ -1308,3 +1308,24 @@ it('projects context updates while running without a metrics RPC and prevents a 
     expect(view.snapshot().metrics?.contextWindow?.usedTokens).toBe(12345); expect(client.metrics).toHaveBeenCalledTimes(2);
     await view.close();
 });
+
+it('keeps native admission pending when the receipt journal rejects a metadata write', async () => {
+    const client = peer(); let record: HarnessRecovery | undefined, rejectReceipt = true;
+    const journal = {epoch: 'e', load: async () => record, save: async (next: HarnessRecovery) => {
+        if (rejectReceipt && next.submission?.status === 'accepted') {
+            rejectReceipt = false;
+            throw Object.assign(new Error('Metadata rejected'), {code: 'EIO', outcome: 'not-committed'});
+        }
+        record = structuredClone(next);
+    }};
+    const view = new HarnessConversation(client, profile, 'p', 's', true, journal);
+    try {
+        await view.read();
+        await expect(view.send('Only once', [], undefined, 'admitted')).rejects.toMatchObject({outcome: 'unknown'});
+        expect(view.snapshot()).toMatchObject({pending: true, submission: {id: 'admitted', status: 'accepted'}});
+        expect(record?.pending?.requestId).toBe('admitted');
+        vi.mocked(client.operation).mockResolvedValue({requestId: 'admitted', outcome: 'committed', result: {turnId: 't'}});
+        await view.reconcile(); expect(view.snapshot().pending).toBe(false);
+        expect(client.turn).toHaveBeenCalledOnce();
+    } finally {await view.close();}
+});

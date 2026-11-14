@@ -520,6 +520,9 @@ export class HarnessConversation implements HarnessConversationPort {
         } catch (error) {
             failure = error;
             if (operation === 'command' && await this.captureInvalidCommand(error)) throw error;
+            // Metadata rejection after dispatch cannot reject an admitted native operation.
+            if (stage === 'persist-receipt' && error && typeof error === 'object' && (error as {outcome?: string}).outcome !== 'committed')
+                Object.assign(error, {outcome: 'unknown'});
             if ((error as {outcome?: string})?.outcome === 'not-committed') {
                 this.rejectSubmission((error as {code?: string; remoteCode?: string}).remoteCode ?? (error as {code?: string}).code); this.pending = undefined; await this.save();
             } else if (this.pending && error && typeof error === 'object' && (error as {outcome?: string}).outcome !== 'committed') Object.assign(error, {outcome: 'unknown'});

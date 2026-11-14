@@ -32,21 +32,23 @@ export class HttpProcessSession {
     private async run(id: string, command: string, args: string[], options: ExecOptions = {}) {
         const scope = operationScope({ ...options, timeoutMs: options.timeoutMs ?? 120_000 });
         let registered = false;
+        let stage = 'admission';
+        const startedAt = Date.now();
         try {
             checkOperation(scope.options);
             const timeoutMs = Math.min(300_000, scope.remaining()!);
             const cwd = options.cwd ? pathUtils.normalize(options.cwd.startsWith('/') ? options.cwd : `${this.spec.cwd}/${options.cwd}`) : this.spec.cwd;
             this.outstanding.add(id); registered = true;
             const started = await this.client.start(id, command, args, cwd, timeoutMs, scope.options);
+            stage = 'observation';
             const status = await this.wait(id, started, scope.options);
             if (isTerminal(status)) this.outstanding.delete(id);
-            if (status.state !== 'exited' || status.code !== 0 || status.truncated) {
-                console.error('[cells] Process failed', { serverId: this.spec.serverId, epoch: this.spec.epoch,
-                    processId: id, cwd, state: status.state, exitCode: status.code, truncated: status.truncated,
-                    error: status.error, stderr: status.stderr.slice(0, 4096) });
-            }
+            logTerminal(this.spec, id, command, args.length, cwd, status, startedAt);
             return processResult(id, status, options.onOutput);
         } catch (error) {
+            console.error('[cells] Process request failed', { ...diagnostic(this.spec, id, command, args.length),
+                stage, result: 'failure', durationMs: Date.now() - startedAt,
+                category: error instanceof FSError ? error.code : 'REQUEST_FAILED' });
             return await this.failed(id, error, scope.options, registered);
         } finally { scope.dispose(); }
     }
@@ -112,4 +114,26 @@ function processResult(id: string, status: ProcessStatus, onOutput?: ExecOptions
         throw new FSError(code, `Remote process ${status.state}${status.truncated ? ' (output limit)' : ''}: ${id}${status.error ? `: ${status.error}` : ''}`);
     }
     return { stdout: status.stdout, stderr: status.stderr, code: status.code };
+}
+
+/** Log a bounded executable category, never shell text, paths or arguments. */
+function commandKind(command: string): string {
+    const name = command.split('/').pop();
+    return name && ['bash', 'sh', 'git', 'rg', 'fd', 'node', 'python', 'python3', 'ls', 'stat'].includes(name) ? name : 'other';
+}
+
+function diagnostic(spec: RemoteProcessSpec, id: string, command: string, argumentCount: number) {
+    return { operation: 'process.exec', serverId: spec.serverId, epoch: spec.epoch,
+        operationId: id, processId: id, commandKind: commandKind(command), argumentCount };
+}
+function logTerminal(spec: RemoteProcessSpec, id: string, command: string, argumentCount: number,
+    cwd: string, status: ProcessStatus, startedAt: number): void {
+    if (status.state === 'exited' && status.code === 0 && !status.truncated) return;
+    console.error('[cells] Process failed', { ...diagnostic(spec, id, command, argumentCount),
+        stage: 'terminal', result: 'failure', cwd, state: status.state, exitCode: status.code,
+        truncated: status.truncated, durationMs: Date.now() - startedAt,
+        category: status.state === 'exited' ? (status.truncated ? 'OUTPUT_LIMIT' : 'NONZERO_EXIT') : status.state,
+        code: ['SPAWN_FAILED', 'REAP_FAILED'].includes(status.error ?? '') ? status.error : undefined,
+        stdoutBytes: new TextEncoder().encode(status.stdout).byteLength,
+        stderrBytes: new TextEncoder().encode(status.stderr).byteLength });
 }

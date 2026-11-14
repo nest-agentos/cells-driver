@@ -30,8 +30,8 @@ it('starts remote processes without randomUUID and logs server-side failure deta
         await expect(session.nativeShell.exec('bash', ['-c', 'ls'])).rejects.toThrow('spawn denied');
         expect(fetch).toHaveBeenCalledTimes(1);
         expect(log).toHaveBeenCalledWith('[cells] Process failed', expect.objectContaining({
-            cwd: '/workspace', error: 'spawn denied', stderr: 'sandbox start failed', state: 'failed',
+            cwd: '/workspace', commandKind: 'bash', argumentCount: 2, state: 'failed', stage: 'terminal', stderrBytes: 20,
         }));
-        expect(JSON.stringify(log.mock.calls)).not.toContain('secret');
+        for (const value of ['secret', 'spawn denied', 'sandbox start failed']) expect(JSON.stringify(log.mock.calls)).not.toContain(value);
     } finally { await session.release(); log.mockRestore(); }
 });
