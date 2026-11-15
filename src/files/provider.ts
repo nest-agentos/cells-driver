@@ -1,6 +1,7 @@
 import { FSError, FileStorageAdapter, createFileSystemSource,
     type FileSystemSourceOwner, type OperationOptions } from '@nestos/vfs-core';
 import { HttpFSBackend } from './backend';
+import { WebDavBackend } from './webdav/backend';
 import { discoverServer, type RemoteServerCapabilities } from './capabilities';
 import { HttpProcessSession, type RemoteProcessSpec } from './process';
 import { SourcePool } from './provider/source-pool';
@@ -8,7 +9,7 @@ import { readExports } from './protocol/exports';
 import { HttpTransport } from './transport';
 import type { NodeEventHub } from '../events';
 
-export interface RemoteConnection { endpoint: string; alias: string; credentialRef: string; username?: string; anonymous?: boolean; authorization?: import('../authorization').RemoteAuthorization; }
+export interface RemoteConnection { protocol?: 'cells' | 'webdav'; endpoint: string; alias: string; credentialRef: string; username?: string; anonymous?: boolean; authorization?: import('../authorization').RemoteAuthorization; }
 type ServerConnection = Omit<RemoteConnection, 'alias'>;
 type CredentialResolver = (reference: string) => string | Promise<string>;
 
@@ -58,7 +59,8 @@ class SourceProvider implements HttpSourceProvider {
 
     open(connection: RemoteConnection, options?: OperationOptions): Promise<FileSystemSourceOwner> {
         return this.sources.acquire(connectionKey(connection), async signal => {
-            const backend = new HttpFSBackend({ ...connection, credential: this.credential(connection.credentialRef), fetch: this.fetch });
+            const Backend = connection.protocol === 'webdav' ? WebDavBackend : HttpFSBackend;
+            const backend = new Backend({ ...connection, credential: this.credential(connection.credentialRef), fetch: this.fetch });
             try {
                 await backend.init({ signal });
                 return createFileSystemSource({ backend: new FileStorageAdapter(backend), viewId: `http:${connection.credentialRef}`,
@@ -74,11 +76,17 @@ class SourceProvider implements HttpSourceProvider {
 
     check(connection: ServerConnection, options?: OperationOptions) { return this.checkDraft(connection, '', options); }
     async checkDraft(connection: ServerConnection, password: string, options?: OperationOptions) {
+        if (connection.protocol === 'webdav') {
+            const backend = new WebDavBackend({ ...connection, credential: password ? () => password : this.credential(connection.credentialRef), fetch: this.fetch });
+            try { await backend.init(options); } finally { await backend.close(); }
+            return;
+        }
         const transport = this.transport(connection, password);
         try { await readExports(transport, options); } finally { transport.close(); }
     }
 
     async browse(connection: ServerConnection, path: string, cursor?: string, options?: OperationOptions) {
+        if (connection.protocol === 'webdav') return this.browseDav(connection, path, cursor, options);
         if (path === '/') {
             const transport = this.transport(connection);
             try {
@@ -96,13 +104,23 @@ class SourceProvider implements HttpSourceProvider {
     }
 
     transport(connection: ServerConnection, password?: string) {
+        if (connection.protocol === 'webdav') throw new FSError('ECAPABILITY', 'Native Cells capabilities are unavailable on a WebDAV connection');
         return new HttpTransport({ ...connection, credential: password ? () => password : this.credential(connection.credentialRef), fetch: this.fetch, events: this.events?.(connection) });
     }
 
     async dispose() { this.credentials.clear(); await this.sources.dispose(); }
+    private async browseDav(connection: ServerConnection, path: string, cursor?: string, options?: OperationOptions) {
+        const backend = new WebDavBackend({ ...connection, credential: this.credential(connection.credentialRef), fetch: this.fetch });
+        try {
+            if (path === '/') { await backend.init(options); return { paths: ['/webdav'], nextCursor: null }; }
+            if (path !== '/webdav' && !path.startsWith('/webdav/')) throw new FSError('EINVAL', 'Invalid WebDAV browse path');
+            const page = await backend.files.list(path.slice('/webdav'.length).replace(/^\//, ''), { ...options, cursor });
+            return { paths: page.entries.filter(item => item.stat.kind === 'directory').map(item => `${path}/${item.name}`), nextCursor: null };
+        } finally { await backend.close(); }
+    }
 }
 
 /** Credential identity participates in sharing; the secret itself never does. */
 function connectionKey(connection: RemoteConnection): string {
-    return JSON.stringify([connection.endpoint, connection.alias, connection.credentialRef, connection.username ?? '', connection.anonymous, connection.authorization]);
+    return JSON.stringify([connection.protocol ?? 'cells', connection.endpoint, connection.alias, connection.credentialRef, connection.username ?? '', connection.anonymous, connection.authorization]);
 }

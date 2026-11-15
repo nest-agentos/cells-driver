@@ -67,6 +67,7 @@ export function createCellsDriver(resolveCredential?: (reference: string) => str
         },
         clearCredential(ref: string) { secrets.delete(ref); for (const hub of eventHubs.values()) hub.reconnect(); },
         harness(connection: Connection) {
+            requireNative(connection);
             const snapshot = { ...connection };
             const client = new CellsHarnessClient(createCellsRpc(snapshot.endpoint, authenticatedFetch(snapshot, credential, fetch), eventHub(snapshot)));
             const close = client.close.bind(client);
@@ -74,7 +75,7 @@ export function createCellsDriver(resolveCredential?: (reference: string) => str
             clients.add(client); return client;
         },
         async open(connection: RemoteConnection & {serverProjectId?: string; serverProjectRevision?: number; access?: 'ro' | 'rw'}, options?: import('@nestos/vfs-core').OperationOptions) {
-            if (!connection.serverProjectId) return openFiles(connection,options);
+            if (connection.protocol === 'webdav' || !connection.serverProjectId) return openFiles(connection,options);
             const scopedFetch: typeof globalThis.fetch = (input,init) => {
                 const headers=new Headers(init?.headers); headers.set('x-fsagent-project',connection.serverProjectId!);
                 headers.set('x-fsagent-project-revision',String(connection.serverProjectRevision));
@@ -92,6 +93,7 @@ export function createCellsDriver(resolveCredential?: (reference: string) => str
             catch(error) {await backend.close();throw error;}
         },
         async projectProcess(connection: Connection, project: RemoteProject, spec: Parameters<HttpSourceProvider['process']>[1]) {
+            requireNative(connection);
             const projects = new CellsProjectClient(createCellsRpc(connection.endpoint,authenticatedFetch(connection,credential,fetch),eventHub(connection)));
             try {
                 const owner=createProjectProcess({...connection,credential:() => credential(connection.credentialRef),fetch,events:eventHub(connection)},projects,project,spec);
@@ -102,6 +104,7 @@ export function createCellsDriver(resolveCredential?: (reference: string) => str
             catch(error) {await projects.close(); throw error;}
         },
         projects(connection: Connection) {
+            requireNative(connection);
             const client = new CellsProjectClient(createCellsRpc(connection.endpoint,authenticatedFetch(connection,credential,fetch),eventHub(connection)));
             const close = client.close.bind(client);
             client.close = async () => { clients.delete(client); await close(); };
@@ -121,6 +124,10 @@ export function createCellsDriver(resolveCredential?: (reference: string) => str
         },
     });
 }
+function requireNative(connection: Connection): void {
+    if (connection.protocol === 'webdav') throw new FSError('ECAPABILITY', 'WebDAV provides files only; native Cells capabilities are unavailable');
+}
+
 async function discoverCapabilities(rpc: CellsRpc,options?: import('@nestos/vfs-core').OperationOptions): Promise<CellsDescriptor> {
     const descriptor = await rpc.metadata?.(options);
     if (!descriptor) throw new FSError('ECAPABILITY', 'Cells API discovery unavailable');
@@ -128,6 +135,7 @@ async function discoverCapabilities(rpc: CellsRpc,options?: import('@nestos/vfs-
 }
 
 function authenticatedFetch(connection: Connection, credential: (ref: string) => Promise<string>, fetch: typeof globalThis.fetch): typeof globalThis.fetch {
+    requireNative(connection);
     const endpoint = new URL(connection.endpoint);
     if (!['http:', 'https:'].includes(endpoint.protocol) || endpoint.username || endpoint.password || endpoint.search || endpoint.hash)
         throw new FSError('EINVAL', 'Invalid agent endpoint');

@@ -1,4 +1,6 @@
 export { HttpFSBackend, openHttpFileSource } from './backend';
+export { WebDavBackend } from './webdav/backend';
+export { WebDavMutationError } from './webdav/transport';
 export type { HttpFileSourceOptions, RemoteExport } from './backend';
 export type { HttpConnectionOptions } from './transport';
 export { createHttpSourceProvider } from './provider';
