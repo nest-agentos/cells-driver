@@ -13,3 +13,11 @@ it('preserves HTTP rejection classification without reflecting an unsafe code or
     fetcher.mockImplementation(async()=>new Response(JSON.stringify({ok:false,error:{code:'PRIVATE BODY',outcome:'partial'}}),{status:200}));
     await expect(client.call('project_exec',{}, {timeout:1000})).rejects.toMatchObject({code:'EIO',remoteCode:'CELLS_OPERATION_FAILED',outcome:'unknown'});
 });
+it('classifies project context rejection as access denied while preserving its specific remote reason', async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({code: 'PROJECT_CONTEXT_REQUIRED'}), {status: 403}));
+    const client = new CellsHttpClient(new URL('http://node/'), fetcher as typeof fetch);
+    await expect(client.call('harness_session_metrics', {}, {timeout: 1000})).rejects.toMatchObject({
+        code: 'EACCES', remoteCode: 'PROJECT_CONTEXT_REQUIRED', outcome: 'not-committed',
+    });
+    expect(fetcher).toHaveBeenCalledOnce();
+});

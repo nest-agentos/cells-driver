@@ -28,6 +28,16 @@ it('negotiates read-only metrics and checks the returned session identity', asyn
     const legacy = new CellsHarnessClient({call: legacyCall, close: vi.fn()});
     await expect(legacy.metrics('native', 's')).rejects.toMatchObject({code: 'ECAPABILITY'}); expect(legacyCall).toHaveBeenCalledOnce();
 });
+it('retains project authorization and revision when reading native metrics', async () => {
+    const scope = {projectId: 'project', revision: 7, readOnly: true};
+    const call = vi.fn(async (name: string, args: object) => {
+        if (name !== 'harness_profiles') expect(args).toMatchObject(scope);
+        return name === 'harness_profiles' ? {epoch: 'e', profiles: [{...profile, projectRuntime: true}]} : {sessionId: 's', metrics};
+    });
+    const client = new CellsHarnessClient({call, close: vi.fn()}, scope);
+    expect(await client.metrics('native', 's', {requestId: 'metrics-once'})).toEqual(metrics);
+    expect(call).toHaveBeenLastCalledWith('harness_session_metrics', {...scope, profileId: 'native', sessionId: 's', requestId: 'metrics-once'}, {requestId: 'metrics-once'});
+});
 it('reads metrics without history, sending or consuming drafts and keeps failures local', async () => {
     const peer = {metrics: vi.fn(async () => metrics), close: vi.fn(async () => {})};
     const view = new HarnessConversation(peer as unknown as HarnessClient, profile, 'p', 's');

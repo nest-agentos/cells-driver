@@ -1,5 +1,5 @@
 import {FSError} from '@nestos/vfs-core';
-import {remoteCode} from './files/transport/errors';
+import {remoteCode, statusCode} from './files/transport/errors';
 
 /** Fixed application transport; no MCP negotiation or tool discovery. */
 export class CellsHttpClient {
@@ -37,7 +37,7 @@ export class CellsHttpClient {
         if (!response.ok) {
             const rawCode = (value as {code?: unknown})?.code;
             const code = typeof rawCode === 'string' && /^[A-Z][A-Z0-9_]{0,79}$/.test(rawCode) ? rawCode : undefined;
-            throw Object.assign(new FSError(remoteCode(code), typeof code === 'string' ? code : 'Cells request rejected'),
+            throw Object.assign(new FSError(remoteCode(code, statusCode(response.status)), typeof code === 'string' ? code : 'Cells request rejected'),
                 {remoteCode: typeof code === 'string' ? code : undefined, outcome: response.status < 500 ? 'not-committed' : 'unknown'});
         }
         return value;

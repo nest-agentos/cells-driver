@@ -20,7 +20,7 @@ export class CellsHarnessClient implements HarnessClient {
         if (!this.checkpointProfiles.length) await this.profiles(options);
         if (!this.checkpointProfiles.find(row => row.id === profileId || row.aliases?.includes(profileId))?.capabilities.metrics)
             throw new FSError('ECAPABILITY', 'Native metrics are unavailable');
-        const value = await this.rpc.call('harness_session_metrics', {profileId, sessionId, requestId: options?.requestId ?? createRequestId()}, options) as {sessionId?: unknown; metrics?: unknown};
+        const value = await this.rpc.call('harness_session_metrics', {...this.scope, profileId, sessionId, requestId: options?.requestId ?? createRequestId()}, options) as {sessionId?: unknown; metrics?: unknown};
         if (value?.sessionId !== sessionId) throw new FSError('EIO', 'Mismatched native metrics session');
         return validateMetrics(value.metrics);
     }
