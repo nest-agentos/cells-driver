@@ -11,11 +11,38 @@ export interface HarnessApprovalContext {
 export interface HarnessRequest {
     approval?:HarnessApprovalContext;
     id: string | number; kind: 'approval' | 'input' | 'unsupported'; detail: string; title?: string;
+    interactionScope?: string;
     questions?: HarnessQuestion[]; decisions?: string[]; unsupportedDecisionCount?: number; responding?: boolean;
 }
-export function nativeRequest(request: HarnessEvent['message']): HarnessRequest[] {
+function codexMcpToolApproval(request: HarnessEvent['message']): HarnessRequest | undefined {
+    const params = request.params;
+    const meta = record(params?._meta), schema = record(params?.requestedSchema);
+    const properties = record(schema?.properties);
+    if (request.id === undefined || request.method !== 'mcpServer/elicitation/request'
+        || params?.mode !== 'form' || meta?.codex_approval_kind !== 'mcp_tool_call'
+        || schema?.type !== 'object' || !properties || Object.keys(properties).length
+        || (schema.required !== undefined && (!Array.isArray(schema.required) || schema.required.length))) return;
+    const tool = meta.tool_name, server = params.serverName, message = params.message;
+    if (typeof tool !== 'string' || !tool || typeof server !== 'string' || !server || typeof message !== 'string') return;
+    const site = record(params.cellsSiteApproval);
+    const origin = typeof site?.origin === 'string' && site.origin.startsWith('https://') ? site.origin : undefined;
+    const display = meta.tool_params_display;
+    const detail = typeof display === 'string' ? display : display ? JSON.stringify(display, null, 2) : '';
+    return {id: request.id, kind: 'approval', title: origin ? `${origin} · ${tool}` : `${server} / ${tool}`,
+        detail: `${message}\n${detail}`.trim().slice(0, 8000), decisions: origin ? ['decline', 'accept', 'allowSiteRead', 'allowSiteReadWrite'] : ['accept', 'decline']};
+}
+
+function record(value: unknown): Record<string, unknown> | undefined {
+    return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+export function nativeRequest(request: HarnessEvent['message'], eventEpoch?: string): HarnessRequest[] {
     if (request.id === undefined) return [];
     const params = request.params ?? {};
+    const turnId = typeof params.turnId === 'string' ? params.turnId : undefined;
+    const scope = eventEpoch || turnId ? {interactionScope: JSON.stringify([eventEpoch, turnId])} : {};
+    const mcpApproval = codexMcpToolApproval(request);
+    if (mcpApproval) return [{...mcpApproval, ...scope}];
     let kind: HarnessRequest['kind'] = ['item/commandExecution/requestApproval', 'item/fileChange/requestApproval'].includes(request.method)
         ? 'approval' : request.method === 'item/tool/requestUserInput' ? 'input' : 'unsupported';
     const questions = Array.isArray(params.questions) ? params.questions.map(question) : undefined;
@@ -27,7 +54,7 @@ export function nativeRequest(request: HarnessEvent['message']): HarnessRequest[
     const approval=approvalContext(request);
     const detail=approval?approval.reason??'':['reason','command','path','toolName'].flatMap(key=>typeof params[key]==='string'?[params[key]]:[]).join('\n');
     const title=typeof params.title==='string'?params.title:undefined;
-    return [{id: request.id, kind, detail, title,...(approval?{approval}:{}), questions: questions?.filter((q): q is HarnessQuestion => !!q), decisions, unsupportedDecisionCount}];
+    return [{id: request.id, ...scope, kind, detail, title,...(approval?{approval}:{}), questions: questions?.filter((q): q is HarnessQuestion => !!q), decisions, unsupportedDecisionCount}];
 }
 function question(value: unknown): HarnessQuestion | undefined {
     if (!value || typeof value !== 'object') return;

@@ -13,6 +13,7 @@ export class WebDavBackend implements FileStorageBackend {
     private readonly http: WebDavTransport;
     private initialized = false;
     private locks = false;
+    private structuralVersions = false;
     constructor(private readonly config: HttpConnectionOptions) {
         if (config.maxReadBytes !== undefined && (!Number.isSafeInteger(config.maxReadBytes) || config.maxReadBytes < 0)) throw new FSError('EINVAL', 'Invalid WebDAV read limit');
         this.http = new WebDavTransport(config);
@@ -27,6 +28,7 @@ export class WebDavBackend implements FileStorageBackend {
         if (!allow.has('PROPFIND') || !dav.some(value => value === '1' || value === '2'))
             throw new FSError('ECAPABILITY', 'WebDAV is unavailable at this address; verify the DAV collection URL and enable the service');
         this.locks = dav.includes('2') && allow.has('LOCK') && allow.has('UNLOCK');
+        this.structuralVersions = reply.headers.get('x-cells-dav-structural-conditions') === 'if-match';
         if (['PUT', 'MKCOL', 'MOVE', 'DELETE'].every(method => allow.has(method))) this.mutations = this.makeMutations();
         if ((await this.stat('', options))?.kind !== 'directory') throw new FSError('ENOTDIR', 'WebDAV address must identify a collection');
         this.initialized = true;
@@ -66,13 +68,25 @@ export class WebDavBackend implements FileStorageBackend {
     private makeMutations(): FileMutations {
         return { replace: (path, data, condition, options) => this.replace(path, data, condition, options),
             mkdir: async (path, options) => { await this.http.request(mutationPath(path), 'MKCOL', {}, undefined, options); return { kind: 'directory' }; },
-            rename: async (from, to, options) => { await this.http.request(mutationPath(from), 'MOVE', { Destination: davUrl(this.http.root, mutationPath(to)).href, Overwrite: 'F' }, undefined, options); },
-            remove: async (path, options) => {
-                mutationPath(path);
-                if ((await this.stat(path, options))?.kind === 'directory' && (await this.list(path, options)).entries.length)
-                    throw new FSError('ENOTEMPTY', 'WebDAV directory must be empty; delete children explicitly');
-                await this.http.request(path, 'DELETE', {}, undefined, options);
-            } };
+            rename: (from, to, options) => this.rename(from, to, options),
+            remove: (path, options) => this.remove(path, options) };
+    }
+    private async rename(from: string, to: string, options?: OperationOptions): Promise<void> {
+        mutationPath(from);
+        const headers = { Destination: davUrl(this.http.root, mutationPath(to)).href, Overwrite: 'F' };
+        const condition = this.structuralVersions ? this.structuralCondition(await this.stat(from, options)) : {};
+        await this.http.request(from, 'MOVE', {...headers, ...condition}, undefined, options);
+    }
+    private async remove(path: string, options?: OperationOptions): Promise<void> {
+        mutationPath(path);
+        const stat = await this.stat(path, options);
+        if (stat?.kind === 'directory' && (await this.list(path, options)).entries.length)
+            throw new FSError('ENOTEMPTY', 'WebDAV directory must be empty; delete children explicitly');
+        await this.http.request(path, 'DELETE', this.structuralVersions ? this.structuralCondition(stat) : {}, undefined, options);
+    }
+    private structuralCondition(stat: FileStat | null): Record<string, string> {
+        if (!stat) throw new FSError('ENOENT', 'WebDAV resource no longer exists');
+        return { 'If-Match': etag(stat.revision ?? '') };
     }
     private async replace(path: string, data: Uint8Array, condition: ReplaceCondition, options?: OperationOptions): Promise<FileStat> {
         mutationPath(path);

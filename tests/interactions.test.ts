@@ -92,3 +92,36 @@ it('preserves file approval identity and isolates context snapshots from caller 
  first.requests[0].approval!.path='/other';expect(conversation.snapshot().requests[0].approval?.path).toBe('/project/file.ts');
  await conversation.close();
 });
+it('offers only one-time decisions for a Codex MCP tool approval', async () => {
+    const request = {id: 'browser-approval', method: 'mcpServer/elicitation/request', params: {
+        mode: 'form', serverName: 'browser', message: 'Open the page?',
+        requestedSchema: {type: 'object', properties: {}},
+        _meta: {codex_approval_kind: 'mcp_tool_call', tool_name: 'open', persist: ['session', 'always']},
+    }};
+    expect(nativeRequest(request)[0]).toMatchObject({
+        kind: 'approval', title: 'browser / open', decisions: ['accept', 'decline'],
+    });
+    expect(nativeRequest({...request,params:{...request.params,turnId:'turn-2'}},'event-epoch')[0].interactionScope)
+        .toBe(JSON.stringify(['event-epoch','turn-2']));
+    expect(nativeRequest({...request, params: {...request.params,
+        cellsSiteApproval: {origin: 'https://example.test', revision: 3, level: 'write'},
+    }})[0]).toMatchObject({title: 'https://example.test · open',
+        decisions: ['decline', 'accept', 'allowSiteRead', 'allowSiteReadWrite']});
+    expect(nativeRequest({...request, params: {...request.params, mode: 'url'}})[0].kind).toBe('unsupported');
+    expect(nativeRequest({...request, params: {...request.params,
+        requestedSchema: {type: 'object', properties: {query: {type: 'string'}}},
+    }})[0].kind).toBe('unsupported');
+    const client = fixture();
+    const pending = {...request, params: {...request.params, threadId: 's'}};
+    client.eventSnapshot.mockResolvedValue({epoch: 'events', cursor: 1, gap: false, events: [], requests: [pending]} as never);
+    const conversation = new HarnessConversation(client as never, profile, 'p', 's');
+    try {
+        expect((await conversation.read()).canRespond).toBe(true);
+        await expect(conversation.respond(request.id, {decision: 'acceptForSession'})).rejects.toMatchObject({code: 'EINVAL'});
+        expect(client.respond).not.toHaveBeenCalled();
+        await conversation.respond(request.id, {decision: 'accept'});
+        expect(client.respond).toHaveBeenCalledWith('codex', request.id, {decision: 'accept'}, expect.any(Object));
+    } finally {
+        await conversation.close();
+    }
+});

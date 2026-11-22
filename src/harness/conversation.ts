@@ -575,7 +575,7 @@ export class HarnessConversation implements HarnessConversationPort {
         if (this.session) {
             try {
                 const page = await this.client.eventSnapshot(this.profile.id, this.cursor, {...this.options(), toolDetail: 'summary',sessionId:this.session?.id});
-                this.requests = page.requests.filter(r => r.params?.threadId === this.session!.id).flatMap(nativeRequest);
+                this.requests = page.requests.filter(r => r.params?.threadId === this.session!.id).flatMap(request => nativeRequest(request, page.epoch));
                 await this.reconcileResponses();
             } catch (error) {this.refreshError = this.errors.record('events', error);}
         }
@@ -690,7 +690,7 @@ export class HarnessConversation implements HarnessConversationPort {
         this.session = (await this.client.inspect(this.profile.id, this.session.id, this.options())).session;
         this.observedAt = Date.now(); this.inspectedAt = this.observedAt;
         if (this.session.lastTurnId) this.recordTurnResult(this.session.lastTurnId, this.session.lastTurnResult);
-        this.requests = page.requests.filter(r => r.params?.threadId === this.session?.id).flatMap(nativeRequest);
+        this.requests = page.requests.filter(r => r.params?.threadId === this.session?.id).flatMap(request => nativeRequest(request, page.epoch));
         this.nativeDisconnected = false;
         const revision = this.session.historyRevision, quiet = !this.contentSinceInspect;
         this.contentSinceInspect = false;
@@ -718,7 +718,7 @@ export class HarnessConversation implements HarnessConversationPort {
             if (!this.session || message.params?.threadId !== this.session.id) continue;
             this.consumeEvent(message.method, message.params, timestamp);
         }
-        this.requests = page.requests.filter(r => this.session && r.params?.threadId === this.session.id).flatMap(nativeRequest);
+        this.requests = page.requests.filter(r => this.session && r.params?.threadId === this.session.id).flatMap(request => nativeRequest(request, page.epoch));
         if (this.requests.length) { this.observedAt = Date.now(); this.source = 'events'; }
     }
     private consumeEvent(method: string, params: Record<string, unknown>, at?: number) {

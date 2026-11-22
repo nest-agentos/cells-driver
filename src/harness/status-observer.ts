@@ -169,7 +169,7 @@ export class HarnessStatusObserver implements HarnessStatusPort {
             }
         }
         for (const [id, session] of state.sessions) {
-            const requests = page.requests.filter(r => r.params?.threadId === id).flatMap(nativeRequest);
+            const requests = page.requests.filter(r => r.params?.threadId === id).flatMap(request => nativeRequest(request, page.epoch));
             const prior = state.observations.get(id)!;
             const fresh = changed.has(id) || requests.length > 0, observedAt = fresh ? this.now() : prior.observedAt;
             const observation = harnessObservation(session, requests, {observedAt,

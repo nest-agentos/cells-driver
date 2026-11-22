@@ -6,12 +6,17 @@ import { multistatus } from '../src/files/webdav/xml';
 const endpoint = 'https://dav.example/dav/docs/';
 const props = (href: string, directory = false, revision = '&quot;v1&quot;') => `<D:response><D:href>${href}</D:href><D:propstat><D:prop><D:resourcetype>${directory ? '<D:collection/>' : ''}</D:resourcetype><D:getetag>${revision}</D:getetag><D:getcontentlength>4</D:getcontentlength></D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>`;
 const xml = (...rows: string[]) => `<D:multistatus xmlns:D="DAV:">${rows.join('')}</D:multistatus>`;
-function fixture(options: { readonly?: boolean; failPut?: number | 'network'; locks?: boolean; failLock?: number; putCode?: string } = {}) {
+function fixture(options: { readonly?: boolean; failPut?: number | 'network'; locks?: boolean; structuralVersions?: boolean; failLock?: number; putCode?: string } = {}) {
     const calls: Array<{ method: string; url: string; headers: Headers }> = [];
     const fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
         const method = init?.method ?? 'GET', path = new URL(String(url)).pathname;
         calls.push({ method, url:String(url), headers:new Headers(init?.headers) });
-        if (method === 'OPTIONS') return new Response(null, {headers:{Allow:options.readonly?'OPTIONS, GET, PROPFIND':'OPTIONS, GET, PROPFIND, PUT, MKCOL, MOVE, DELETE, LOCK, UNLOCK',DAV:options.locks?'1, 2':'1'}});
+        if (method === 'OPTIONS') {
+            const allow = options.readonly ? 'OPTIONS, GET, PROPFIND' : 'OPTIONS, GET, PROPFIND, PUT, MKCOL, MOVE, DELETE' + (options.locks ? ', LOCK, UNLOCK' : '');
+            const headers = new Headers({Allow:allow, DAV:options.locks?'1, 2':'1'});
+            if (options.structuralVersions) headers.set('x-cells-dav-structural-conditions', 'if-match');
+            return new Response(null, {headers});
+        }
         if (method === 'PROPFIND') return new Response(xml(props(path, !path.endsWith('.md')), ...(new Headers(init?.headers).get('depth') === '1' ? [props(path+'note.md')] : [])), {status:207});
         if (method === 'GET') return new Response('text', {headers:{ETag:'"v1"'}});
         if (method === 'LOCK' && options.failLock) return new Response(JSON.stringify({code:'FILE_LOCK_CONFLICT',outcome:'not-committed'}),{status:options.failLock});
@@ -42,7 +47,17 @@ describe('independent WebDAV file source', () => {
         await f.backend.mutations!.mkdir('folder'); await f.backend.mutations!.rename('new.md','renamed.md'); await f.backend.mutations!.remove('renamed.md');
         expect(f.calls.find(call=>call.method==='PUT')!.headers.get('if-none-match')).toBe('*');
         expect(f.calls.find(call=>call.method==='MOVE')!.headers.get('overwrite')).toBe('F');
+        expect(f.calls.find(call=>call.method==='MOVE')!.headers.get('if-match')).toBeNull();
         expect(new Set(f.calls.filter(call=>['PUT','MKCOL','MOVE','DELETE'].includes(call.method)).map(call=>call.headers.get('x-operation-id'))).size).toBe(4);
+    });
+    it('sends source validators on a Cells conditional export and saves without a lock', async () => {
+        const f=fixture({structuralVersions:true}); await f.backend.init();
+        await f.backend.mutations!.replace('note.md',new Uint8Array(),{kind:'match',revision:'"v1"'});
+        await f.backend.mutations!.rename('note.md','renamed.md');
+        await f.backend.mutations!.remove('renamed.md');
+        expect(f.calls.filter(call=>['PUT','MOVE','DELETE'].includes(call.method))
+            .map(call=>[call.method,call.headers.get('if-match')])).toEqual([['PUT','"v1"'],['MOVE','"v1"'],['DELETE','"v1"']]);
+        expect(f.calls.some(call=>call.method==='LOCK'||call.method==='UNLOCK')).toBe(false);
     });
     it('rejects a regular HTTP endpoint that does not advertise DAV', async () => {
         const backend=new WebDavBackend({endpoint,credential:()=> 'fixture',fetch:(async()=>new Response(null)) as typeof fetch});
