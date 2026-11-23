@@ -30,7 +30,12 @@ export class NodeEventHub {
         const key = JSON.stringify([plugin, Object.entries(scope).sort(([a],[b]) => a.localeCompare(b))]);
         let channel = this.channels.get(key);
         if (!channel) {
-            if (this.channels.size >= 32) throw new FSError('EFBIG', 'Node subscription limit reached');
+            const reserved = [...this.channels.values()].filter(row => !row.terminal || row.retry !== undefined).length;
+            if (reserved >= 32) {
+                console.warn('[cells] events.admission.failed', {operationId: requestId(), stage: 'subscription', result: 'failure',
+                    code: 'EFBIG', reason: 'subscription-limit', subscriptions: reserved, durationMs: 0});
+                throw new FSError('EFBIG', 'Node subscription limit reached');
+            }
             channel = {id: requestId(), plugin, args: {...args}, listeners: new Set()};
             this.channels.set(key, channel); this.restart();
         }

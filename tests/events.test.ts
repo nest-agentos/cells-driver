@@ -2,6 +2,7 @@ import {afterEach, expect, it, vi} from 'vitest';
 import {NodeEventHub, requireEventCapability} from '../src/events';
 import {readEventStream} from '../src/events/parser';
 import {HarnessEventFeed} from '../src/harness/event-feed';
+import {CellsHarnessClient} from '../src/harness/client';
 
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 const encoder = new TextEncoder();
@@ -52,6 +53,26 @@ it('isolates a revoked project from another live subscription', async () => {
     expect(denied.error).toHaveBeenCalledOnce(); expect(allowed.error).not.toHaveBeenCalled();
     expect(opened).toHaveLength(1);
     send(0,b.id,{epoch:'e',cursor:1}); await vi.advanceTimersByTimeAsync(0); expect(allowed.next).toHaveBeenCalledOnce(); hub.close();
+});
+it('leaves subscription capacity available after permanent source rejections', async () => {
+    vi.useFakeTimers();
+    const {hub, opened, send} = fixture();
+    const stale = {next: vi.fn(), error: vi.fn()}, live = {next: vi.fn(), error: vi.fn()};
+    try {
+        for (let index = 0; index < 32; index++) hub.subscribe('projects', {channelId: String(index)}, stale);
+        await vi.advanceTimersByTimeAsync(0);
+        for (const {id} of opened[0].body.subscriptions) {
+            opened[0].controller.enqueue(encoder.encode(`data: ${JSON.stringify({id, error: {code: 'ENOENT', status: 404}})}\n\n`));
+        }
+        await vi.advanceTimersByTimeAsync(0);
+        expect(stale.error).toHaveBeenCalledTimes(32);
+        hub.subscribe('harness', {profileId: 'claude'}, live);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(opened[1].body.subscriptions).toHaveLength(1);
+        send(1, opened[1].body.subscriptions[0].id, {epoch: 'e', cursor: 1});
+        await vi.advanceTimersByTimeAsync(0);
+        expect(live.next).toHaveBeenCalledOnce();
+    } finally { hub.close(); }
 });
 it('backs off a failed source while keeping healthy subjects streaming', async () => {
     vi.useFakeTimers(); const {hub,opened,send} = fixture(), a={next:vi.fn(),error:vi.fn()}, b={next:vi.fn(),error:vi.fn()};
@@ -126,4 +147,30 @@ it('keeps healthy feed observers current after another observer throws', async (
         receive({ epoch: 'e', cursor: 1, gap: false, events: [], requests: [] });
         expect(healthy).toHaveBeenCalledOnce(); expect((await feed.snapshot()).cursor).toBe(1);
     } finally { feed.close(); }
+});
+
+it('releases scoped feeds after the last observer or snapshot finishes', async () => {
+    const active = new Set<string>();
+    const subscribe = vi.fn((_plugin, args, listener) => {
+        if (active.size >= 32) throw new Error('subscription limit');
+        const id = args.sessionId as string;
+        active.add(id);
+        queueMicrotask(() => listener.next({epoch: 'e', after: args.after ?? 0, cursor: 7, gap: false, events: [], requests: []}));
+        return () => { active.delete(id); };
+    });
+    const client = new CellsHarnessClient({call: vi.fn(), close: vi.fn(), subscribe});
+    const first = client.subscribe('p', vi.fn(), 'shared');
+    const last = client.subscribe('p', vi.fn(), 'shared');
+    try {
+        first();
+        expect(active.has('shared')).toBe(true);
+        for (let index = 0; index < 40; index++) {
+            await expect(client.eventSnapshot('p', {after: 5, eventEpoch: 'e'}, {sessionId: String(index)}))
+                .resolves.toMatchObject({cursor: 7, gap: false});
+        }
+        expect(subscribe.mock.calls[1][1]).toMatchObject({after: 5, eventEpoch: 'e'});
+        expect(active).toEqual(new Set(['shared']));
+        last();
+        expect(active.size).toBe(0);
+    } finally { await client.close(); }
 });

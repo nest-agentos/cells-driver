@@ -56,18 +56,35 @@ export class CellsHarnessClient implements HarnessClient {
         return result;
     }
     private epoch?: string;
-    private readonly feeds = new Map<string, HarnessEventFeed>();
+    private readonly feeds = new Map<string, {feed: HarnessEventFeed; users: number}>();
     private closed = false;
-    private feed(profileId: string,sessionId?:string): HarnessEventFeed {
+    private acquireFeed(profileId: string, sessionId?: string, cursor?: {after: number; eventEpoch: string}) {
         if (this.closed) throw new FSError('ECANCELLED','Harness client is closed');
-        const key=JSON.stringify([profileId,sessionId??null]);
-        let feed = this.feeds.get(key);
-        if (!feed) { feed = new HarnessEventFeed(this.rpc,{...this.scope,profileId,...(sessionId?{sessionId}:{})}); this.feeds.set(key,feed); }
-        return feed;
+        const key = JSON.stringify([profileId, sessionId ?? null]);
+        let entry = this.feeds.get(key);
+        if (!entry) {
+            entry = {feed: new HarnessEventFeed(this.rpc, {...this.scope, profileId, ...(sessionId ? {sessionId} : {}), ...cursor}), users: 0};
+            this.feeds.set(key, entry);
+        }
+        ++entry.users;
+        let released = false;
+        return {feed: entry.feed, release: () => {
+            if (released) return;
+            released = true;
+            if (--entry.users || this.feeds.get(key) !== entry) return;
+            this.feeds.delete(key);
+            entry.feed.close();
+        }};
     }
-    subscribe(profileId: string, listener: () => void,sessionId?:string): () => void { return this.feed(profileId,sessionId).subscribe(listener); }
-    eventSnapshot(profileId: string, cursor?: {after:number;eventEpoch:string}, options?: HarnessEventsOptions): Promise<HarnessEvents> {
-        return this.feed(profileId,options?.sessionId).snapshot(cursor,options);
+    subscribe(profileId: string, listener: () => void, sessionId?: string): () => void {
+        const {feed, release} = this.acquireFeed(profileId, sessionId);
+        const stop = feed.subscribe(listener);
+        return () => { stop(); release(); };
+    }
+    async eventSnapshot(profileId: string, cursor?: {after:number;eventEpoch:string}, options?: HarnessEventsOptions): Promise<HarnessEvents> {
+        const {feed, release} = this.acquireFeed(profileId, options?.sessionId, cursor);
+        try { return await feed.snapshot(cursor, options); }
+        finally { release(); }
     }
     private directoryValue?: string;
     private directoryError?: unknown;
@@ -278,7 +295,7 @@ export class CellsHarnessClient implements HarnessClient {
     }
     async close() {
         this.closed = true;
-        for (const feed of this.feeds.values()) feed.close(); this.feeds.clear();
+        for (const {feed} of this.feeds.values()) feed.close(); this.feeds.clear();
         this.directoryStop?.(); this.directoryStop = undefined; this.directoryListeners.clear();
         for (const stop of [...this.pathSubscriptions]) stop();
         await this.rpc.close();
