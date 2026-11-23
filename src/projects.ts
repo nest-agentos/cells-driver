@@ -8,8 +8,15 @@ import { CellsRpc } from './harness/rpc';
 import type { HarnessClient } from './harness/contracts';
 import { validateFileSearch, validateSearchDirectory, type FileSearchQuery, type FileSearchResult } from './search';
 
+export type HarnessApprovalDefault = 'ask' | 'allowRead' | 'allowAll' | 'deny';
+export type HarnessApprovalDefaults = Partial<Record<'codex' | 'dsh' | 'claude', HarnessApprovalDefault>>;
+export interface HarnessApprovalSettings {revision: number; defaults: HarnessApprovalDefaults}
 export interface ProjectEnvironment { profile: string | null; variables: Record<string, string> }
-export interface ProjectExecutionSettings { execution: ProjectEnvironment; profiles: Array<{id: string; name: string; user: string | null}> }
+export interface ProjectExecutionSettings {
+    execution: ProjectEnvironment;
+    profiles: Array<{id: string; name: string; user: string | null}>;
+    harnessApprovals?: HarnessApprovalSettings;
+}
 export interface ProjectMount { alias: string; path: string; at: string; access: 'ro' | 'rw' }
 export interface RemoteProject {
     authorization?: RemoteAuthorization; capabilities?: RemoteProjectCapabilities;
@@ -39,6 +46,7 @@ export interface ProjectClient {
     clientState?(project:RemoteProject,input:{key:string;action:"read"|"compare";expected?:string|null;value?:string|null;requestId?:string},options?:OperationOptions):Promise<{value?:string|null;applied?:boolean}>;
     channel?(project: RemoteProject, operation: 'open' | 'messages' | 'close' | 'requests' | 'respond' | 'current' | 'acknowledge', input: Record<string, unknown>, options?: OperationOptions): Promise<unknown>;
     executionSettings?(project: RemoteProject, options?: OperationOptions): Promise<ProjectExecutionSettings>;
+    setHarnessApprovals?(project: RemoteProject, settings: HarnessApprovalSettings, options?: OperationOptions): Promise<HarnessApprovalSettings>;
     setExecution?(project: RemoteProject, execution: ProjectEnvironment, options?: OperationOptions): Promise<RemoteProject>;
     search?(project: RemoteProject, query: FileSearchQuery, options?: OperationOptions): Promise<FileSearchResult>;
     roots(options?: OperationOptions): Promise<{ roots: Array<{alias: string; access: 'ro' | 'rw'}>; execution: boolean; backend: string }>;
@@ -111,7 +119,14 @@ export class CellsProjectClient implements ProjectClient {
         const value = await this.rpc.call('project_execution', {projectId: project.id}, options) as ProjectExecutionSettings;
         if (!value || !Array.isArray(value.profiles) || value.profiles.some(p => !p || typeof p.id !== 'string' || typeof p.name !== 'string' || p.user !== null && typeof p.user !== 'string')) throw new FSError('EIO', 'Invalid execution profiles');
         validateEnvironment(value.execution);
+        if (value.harnessApprovals !== undefined) validateApprovalSettings(value.harnessApprovals);
         return value;
+    }
+    async setHarnessApprovals(project: RemoteProject, settings: HarnessApprovalSettings, options?: OperationOptions) {
+        validateApprovalSettings(settings);
+        const value = await this.rpc.call('project_set_harness_approvals', {projectId: project.id, ...settings}, options) as {harnessApprovals: HarnessApprovalSettings};
+        validateApprovalSettings(value?.harnessApprovals);
+        return value.harnessApprovals;
     }
     async setExecution(project: RemoteProject, execution: ProjectEnvironment, options?: OperationOptions) {
         execution = structuredClone(execution);
@@ -183,6 +198,15 @@ function validateProject(value: unknown): RemoteProject {
     if (project.mounts.some(mount => !mount || typeof mount.alias !== 'string' || typeof mount.path !== 'string'
         || typeof mount.at !== 'string' || !['ro','rw'].includes(mount.access))) throw new FSError('EIO','Invalid project mount');
     return {...project, authorization: validateAuthorization(project.authorization), capabilities: validateProjectCapabilities(project.capabilities)};
+}
+
+function validateApprovalSettings(value: HarnessApprovalSettings): void {
+    const defaults = value?.defaults;
+    if (!Number.isSafeInteger(value?.revision) || value.revision < 0 || !defaults
+        || typeof defaults !== 'object' || Array.isArray(defaults)
+        || Object.entries(defaults).some(([kind, policy]) => !['codex', 'dsh', 'claude'].includes(kind)
+            || !['ask', 'allowAll', 'deny', ...(kind === 'claude' ? ['allowRead'] : [])].includes(policy)))
+        throw new FSError('EINVAL', 'Invalid project harness approval settings');
 }
 
 function validateEnvironment(value: ProjectEnvironment): void {

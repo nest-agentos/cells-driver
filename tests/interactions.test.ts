@@ -54,9 +54,30 @@ it.each(['accept', 'cancel'])('forwards only the explicitly selected offered nat
     expect(client.respond).toHaveBeenCalledWith('codex', 'approval', {decision}, expect.anything());
     await conversation.close();
 });
+it('forwards repeated read approval only when the driver offers it', async () => {
+    const request = {...approvalRequest, params: {...approvalRequest.params,
+        availableDecisions: ['accept', 'allowRepeatedRead', 'decline']}};
+    const client = fixture(); client.eventSnapshot.mockResolvedValue({epoch: 'events', cursor: 1, gap: false, events: [], requests: [request]} as never);
+    const conversation = new HarnessConversation(client as never, profile, 'p', 's');
+    await conversation.read();
+    await conversation.respond('approval', {decision: 'allowRepeatedRead'});
+    expect(client.respond).toHaveBeenCalledWith('codex', 'approval', {decision: 'allowRepeatedRead'}, expect.anything());
+    await conversation.close();
+});
+it('forwards a Cells session-wide grant only when the pending request offers it', async () => {
+    const decision = 'allowAllForSession';
+    const client = fixture(); client.eventSnapshot.mockResolvedValue({epoch: 'events', cursor: 1, gap: false, events: [],
+        requests: [{...approvalRequest, params: {...approvalRequest.params, decisions: ['accept', decision]}}]} as never);
+    const conversation = new HarnessConversation(client as never, profile, 'p', 's');
+    await conversation.read();
+    await conversation.respond('approval', {decision});
+    expect(client.respond).toHaveBeenCalledWith('codex', 'approval', {decision}, expect.anything());
+    await conversation.close();
+});
 it('rejects invented approval or modified policy before creating any native response', async () => {
     const client = fixture(); client.eventSnapshot.mockResolvedValue({epoch: 'events', cursor: 1, gap: false, events: [], requests: [approvalRequest]} as never);
     const conversation = new HarnessConversation(client as never, profile, 'p', 's'); await conversation.read();
+    await expect(conversation.respond('approval', {decision: 'allowRepeatedRead'})).rejects.toMatchObject({code: 'EINVAL'});
     await expect(conversation.respond('approval', {decision: 'acceptForSession'})).rejects.toMatchObject({code: 'EINVAL'});
     await expect(conversation.respond('approval', {decision: {acceptWithExecpolicyAmendment: {execpolicy_amendment: ['/bin/bash']}}})).rejects.toMatchObject({code: 'EINVAL'});
     expect(client.respond).not.toHaveBeenCalled(); expect(conversation.snapshot().requests).toHaveLength(1); await conversation.close();

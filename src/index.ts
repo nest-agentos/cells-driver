@@ -7,7 +7,7 @@ export type { CellsDriver, CellsDescriptor } from './provider';
 export * from './files/index';
 export type { HarnessClient, HarnessCreateOptions, HarnessMutationOptions, HarnessExecutionRecovery, HarnessProfile, HarnessSession, HarnessPage, HarnessHistory, HarnessHistoryOptions, HarnessEvent, HarnessEvents, HarnessReceipt } from './harness/contracts';
 
-export type { ProjectEnvironment, ProjectExecutionSettings, ProjectClient, RemoteProject, ProjectMount, RegisterProject, ProjectProcess } from './projects';
+export type { HarnessApprovalSettings, ProjectEnvironment, ProjectExecutionSettings, ProjectClient, RemoteProject, ProjectMount, RegisterProject, ProjectProcess } from './projects';
 
 export type { DirectorySyncClient, DirectorySyncBinding, DirectorySyncInput, DirectorySyncPlan, DirectoryContent } from './directory-sync';
 export type { DirectorySyncDirection, DirectorySyncConflict, DirectorySyncComparison, SyncContentPreview } from './directory-sync';

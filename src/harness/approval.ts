@@ -1,6 +1,6 @@
 import {FSError} from '@nestos/vfs-core';
 
-const supported = ['accept', 'acceptForSession', 'decline', 'cancel', 'allow', 'approve', 'deny', 'reject'];
+const supported = ['accept', 'acceptForSession', 'allowRepeatedRead', 'allowAllForSession', 'decline', 'cancel', 'allow', 'approve', 'deny', 'reject'];
 /** Unknown alternatives do not invalidate independently usable native decisions. */
 export function harnessApprovalDecisions(offered: unknown): string[] {
     if (!Array.isArray(offered)) return [];
