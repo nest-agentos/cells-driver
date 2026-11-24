@@ -542,7 +542,7 @@ export class HarnessConversation implements HarnessConversationPort {
                 code: code && /^[A-Z][A-Z0-9_]{0,79}$/.test(code) ? code : failure ? 'HARNESS_MUTATION_FAILED' : undefined});} catch { /* Diagnostics never change admission. */ }
         }
     }
-    async read(): Promise<HarnessConversationSnapshot> {
+    async read(options?: {includeUsage?: false}): Promise<HarnessConversationSnapshot> {
         await this.restore();
         if(this.journal?.instructions){
             await this.instructions.reload();
@@ -551,7 +551,9 @@ export class HarnessConversation implements HarnessConversationPort {
         if (this.pending?.operation === 'delete') return this.reconcile();
         if (this.deletedSessionIds.length) return this.snapshot();
         if (this.session) {
-            const history = await this.client.read(this.profile.id, this.session.id, {...this.options(), toolDetail: 'summary',sessionId:this.session?.id});
+            const deferUsage = options?.includeUsage === false && this.profile.capabilities.historyWithoutUsage;
+            const history = await this.client.read(this.profile.id, this.session.id, {...this.options(), toolDetail: 'summary',
+                sessionId:this.session.id, ...(deferUsage ? {includeUsage: false} : {})});
             await this.observeHistoryCompletion(history);
             const nativeMessages = historyMessages(history); if (!history.recovery) this.observeCommandHistory(nativeMessages);
             const messages = nativeMessages.map(message => projectCommandMessage(message, this.commandResults));
@@ -560,7 +562,8 @@ export class HarnessConversation implements HarnessConversationPort {
                 if (turn.id) this.recordTurnResult(turn.id, turn.status);
             }
             this.messages = this.expandedHistory ? mergeMessages(this.messages, messages) : messages;
-            this.session = {...history.session, lastTurnResult: history.session.lastTurnResult ?? (history.session.lastTurnId ? this.turnResults.get(history.session.lastTurnId) : undefined)};
+            this.session = {...history.session, ...(deferUsage ? {usage: this.session.usage, usageUnavailable: this.session.usageUnavailable} : {}),
+                lastTurnResult: history.session.lastTurnResult ?? (history.session.lastTurnId ? this.turnResults.get(history.session.lastTurnId) : undefined)};
             if (!history.recovery && this.session.lastTurnId) this.recordTurnResult(this.session.lastTurnId, this.session.lastTurnResult);
             if (history.eventCursor) this.cursor = {...history.eventCursor};
             this.observedAt = Date.now(); this.source = 'history'; this.gap = false;
@@ -1068,7 +1071,7 @@ export interface HarnessConversationPort {
     branches(): Promise<HarnessSession[]>;
     loadEarlier(): Promise<HarnessConversationSnapshot>;
     saveDraft(text: string, attachments?: HarnessAttachment[]): Promise<void>;
-    read(): Promise<HarnessConversationSnapshot>;
+    read(options?: {includeUsage?: false}): Promise<HarnessConversationSnapshot>;
     refresh(): Promise<HarnessConversationSnapshot>;
     models?(): Promise<HarnessModelCatalog>;
     send(text: string, attachments?: HarnessAttachment[], selection?: HarnessModelSelection, submissionId?: string): Promise<HarnessConversationSnapshot>;

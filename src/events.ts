@@ -11,31 +11,72 @@ interface Channel {
     failures?: number;
 }
 
-/** One authenticated stream per node/identity, with ref-counted domain subscriptions. */
+const TOPICS_PER_STREAM = 32;
+const STREAMS_PER_IDENTITY = 8;
+
+/** Share one observer per node and identity, respecting the gateway's per-stream topic limit. */
 export class NodeEventHub {
+    private readonly streams = new Set<NodeEventStream>();
+    private closed = false;
+    constructor(private readonly endpoint: URL, private readonly fetcher: typeof globalThis.fetch) {
+        if (!['http:', 'https:'].includes(endpoint.protocol) || endpoint.username || endpoint.password || endpoint.search || endpoint.hash)
+            throw new FSError('EINVAL', 'Invalid node event endpoint');
+    }
+    subscribe(plugin: string, args: Record<string, unknown>, listener: RemoteEventListener): () => void {
+        if (this.closed) throw new FSError('ECANCELLED', 'Node event connection is closed');
+        const {after: _after, eventEpoch: _epoch, ...scope} = args;
+        const key = JSON.stringify([plugin, Object.entries(scope).sort(([a], [b]) => a.localeCompare(b))]);
+        const streams = [...this.streams];
+        const stream = streams.find(entry => entry.has(key)) ?? streams.find(entry => entry.size < TOPICS_PER_STREAM) ?? this.openStream();
+        const stop = stream.subscribe(key, plugin, args, listener);
+        return () => {
+            stop();
+            if (stream.size === 0 && this.streams.delete(stream)) stream.close();
+        };
+    }
+    private openStream(): NodeEventStream {
+        const started = Date.now();
+        if (this.streams.size >= STREAMS_PER_IDENTITY) {
+            console.warn('[cells] events.admission.failed', {operationId: requestId(), stage: 'subscription', result: 'failure',
+                code: 'EFBIG', reason: 'subscription-limit', streams: this.streams.size, topics: this.topicCounts(),
+                durationMs: Date.now() - started});
+            throw new FSError('EFBIG', 'Node subscription limit reached');
+        }
+        const stream = new NodeEventStream(this.endpoint, this.fetcher);
+        this.streams.add(stream);
+        if (this.streams.size > 1) console.info('[cells] events.stream.added', {operationId: requestId(), stage: 'subscription',
+            result: 'success', streams: this.streams.size, topics: this.topicCounts(), durationMs: Date.now() - started});
+        return stream;
+    }
+    private topicCounts() {
+        const counts = {harness: 0, projects: 0, process: 0, other: 0, terminal: 0};
+        for (const stream of this.streams) stream.countTopics(counts);
+        return counts;
+    }
+    reconnect(): void { for (const stream of this.streams) stream.reconnect(); }
+    close(): void { this.closed = true; for (const stream of this.streams) stream.close(); this.streams.clear(); }
+}
+
+class NodeEventStream {
     private readonly channels = new Map<string, Channel>();
     private controller?: AbortController;
     private timer?: ReturnType<typeof setTimeout>;
     private revision = 0;
     private failures = 0;
     private closed = false;
-    constructor(private readonly endpoint: URL, private readonly fetcher: typeof globalThis.fetch) {
-        if (!['http:','https:'].includes(endpoint.protocol) || endpoint.username || endpoint.password || endpoint.search || endpoint.hash)
-            throw new FSError('EINVAL','Invalid node event endpoint');
+    constructor(private readonly endpoint: URL, private readonly fetcher: typeof globalThis.fetch) {}
+    get size(): number { return this.channels.size; }
+    has(key: string): boolean { return this.channels.has(key); }
+    countTopics(counts: {harness: number; projects: number; process: number; other: number; terminal: number}): void {
+        for (const {plugin, terminal} of this.channels.values()) {
+            if (plugin === 'harness' || plugin === 'projects' || plugin === 'process') ++counts[plugin];
+            else ++counts.other;
+            if (terminal) ++counts.terminal;
+        }
     }
-
-    subscribe(plugin: string, args: Record<string, unknown>, listener: RemoteEventListener): () => void {
-        if (this.closed) throw new FSError('ECANCELLED', 'Node event connection is closed');
-        const {after: _after, eventEpoch: _epoch, ...scope} = args;
-        const key = JSON.stringify([plugin, Object.entries(scope).sort(([a],[b]) => a.localeCompare(b))]);
+    subscribe(key: string, plugin: string, args: Record<string, unknown>, listener: RemoteEventListener): () => void {
         let channel = this.channels.get(key);
         if (!channel) {
-            const reserved = [...this.channels.values()].filter(row => !row.terminal || row.retry !== undefined).length;
-            if (reserved >= 32) {
-                console.warn('[cells] events.admission.failed', {operationId: requestId(), stage: 'subscription', result: 'failure',
-                    code: 'EFBIG', reason: 'subscription-limit', subscriptions: reserved, durationMs: 0});
-                throw new FSError('EFBIG', 'Node subscription limit reached');
-            }
             channel = {id: requestId(), plugin, args: {...args}, listeners: new Set()};
             this.channels.set(key, channel); this.restart();
         }

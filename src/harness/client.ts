@@ -177,7 +177,9 @@ export class CellsHarnessClient implements HarnessClient {
             ...(options?.metadataOnly !== undefined ? {metadataOnly: options.metadataOnly} : {})}, options), sessionId);
     }
     async read(profileId: string, sessionId: string, options?: HarnessHistoryOptions): Promise<HarnessHistory> {
-        return validateHistory(await this.rpc.call('harness_session_read', { ...this.scope, profileId, sessionId, ...(options?.cursor ? {cursor:options.cursor} : {}), ...(options?.toolDetail ? {toolDetail: options.toolDetail} : {}) }, options));
+        return validateHistory(await this.rpc.call('harness_session_read', { ...this.scope, profileId, sessionId,
+            ...(options?.cursor ? {cursor:options.cursor} : {}), ...(options?.toolDetail ? {toolDetail: options.toolDetail} : {}),
+            ...(options?.includeUsage === false ? {includeUsage: false} : {}) }, options));
     }
     async inspect(profileId: string, sessionId: string, options?: OperationOptions) {
         try {

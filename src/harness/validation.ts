@@ -48,9 +48,19 @@ export function validateSession(value: unknown): HarnessSession {
     const usage = v.usage === undefined ? undefined : validateUsage(v.usage, v.id as string);
     if (v.usageUnavailable !== undefined && typeof v.usageUnavailable !== 'boolean') throw invalid();
     const native = v.native && typeof v.native === 'object' ? v.native as Record<string, unknown> : {};
-    return {...v, executionRecovery: validateExecutionRecovery(v.executionRecovery), usage, metrics: readSessionMetrics(v.metrics), writerLock: validateWriterLock(v.writerLock), title: [v.title, native.name, native.preview].find(text => typeof text === 'string' && text.trim())?.toString().trim() ?? '',
+    return {...v, executionRecovery: validateExecutionRecovery(v.executionRecovery), usage, metrics: readSessionMetrics(v.metrics), writerLock: validateWriterLock(v.writerLock), title: sessionTitle(v.title, native),
         lastTurnResult: v.lastTurnResult ?? undefined,
         createdAt: sessionTime(v.createdAt ?? native.createdAt), updatedAt: sessionTime(v.updatedAt ?? native.updatedAt)} as unknown as HarnessSession;
+}
+function sessionTitle(reported: string, native: Record<string, unknown>): string {
+    const name = typeof native.name === 'string' ? native.name.trim() : '';
+    const preview = typeof native.preview === 'string' ? native.preview.trim() : '';
+    const title = reported.trim() || name;
+    // Older project drafts used a filesystem-safe UTC timestamp as the native name.
+    if (title && (title !== name || !/^\d{4}-\d{2}-\d{2} \d{2}-\d{2}-\d{2}Z$/.test(name))) return title;
+    if (!preview) return title;
+    const line = [...preview.split(/\r?\n/, 1)[0]];
+    return line.length > 160 ? line.slice(0, 159).join('') + '…' : line.join('');
 }
 export function validateProfiles(value: unknown): { epoch: string; profiles: HarnessProfile[] } {
     const v = record(value);
@@ -63,7 +73,7 @@ export function validateProfiles(value: unknown): { epoch: string; profiles: Har
             || p.workspaces.some(w => typeof record(w).id !== 'string')
             || (caps.fork !== undefined && typeof caps.fork !== 'boolean')
             || (caps.search !== undefined && typeof caps.search !== 'boolean')
-            || ['sessionChannels', 'workingDirectory', 'executionRecovery', 'sessionDigest', 'metrics', 'steer', 'models', 'slashCommands', 'commandQueries', 'commandOutputs', 'usage', 'checkpointFork', 'searchPrompts', 'searchKeywords', 'rename', 'archive', 'unarchive', 'delete'].some(key => caps[key] !== undefined && typeof caps[key] !== 'boolean')
+            || ['sessionChannels', 'workingDirectory', 'executionRecovery', 'sessionDigest', 'historyWithoutUsage', 'metrics', 'steer', 'models', 'slashCommands', 'commandQueries', 'commandOutputs', 'usage', 'checkpointFork', 'searchPrompts', 'searchKeywords', 'rename', 'archive', 'unarchive', 'delete'].some(key => caps[key] !== undefined && typeof caps[key] !== 'boolean')
             || caps.checkpointFork === true && caps.fork !== true
             || caps.commandQueries === true && caps.slashCommands !== true
             || caps.commandOutputs === true && caps.slashCommands !== true

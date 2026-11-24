@@ -8,7 +8,7 @@ export interface HarnessProfile {
     contextId?: string;
     projectCapabilities?: import('../authorization').RemoteProjectCapabilities;
     id: string; kind: string; projectRuntime?: boolean; workspaces: Array<{ id: string }>;
-    capabilities: { sessionChannels?: boolean; workingDirectory?: boolean; executionRecovery?: boolean; sessionDigest?: boolean; metrics?: boolean; models?: boolean; slashCommands?: boolean; commandQueries?: boolean; commandOutputs?: boolean; usage?: boolean; history: boolean; create: boolean; resume: boolean; interrupt: boolean; steer?: boolean; interactions: boolean; fork?: boolean; checkpointFork?: boolean; search?: boolean; searchPrompts?: boolean; searchKeywords?: boolean; rename?: boolean; archive?: boolean; unarchive?: boolean; delete?: boolean; attachments?: Array<'text' | 'image'> };
+    capabilities: { sessionChannels?: boolean; workingDirectory?: boolean; executionRecovery?: boolean; sessionDigest?: boolean; historyWithoutUsage?: boolean; metrics?: boolean; models?: boolean; slashCommands?: boolean; commandQueries?: boolean; commandOutputs?: boolean; usage?: boolean; history: boolean; create: boolean; resume: boolean; interrupt: boolean; steer?: boolean; interactions: boolean; fork?: boolean; checkpointFork?: boolean; search?: boolean; searchPrompts?: boolean; searchKeywords?: boolean; rename?: boolean; archive?: boolean; unarchive?: boolean; delete?: boolean; attachments?: Array<'text' | 'image'> };
 }
 export interface HarnessWriterLock {
     status: 'held' | 'not-held' | 'unknown'; checkedAt: number; acquiredAt?: number | null;
@@ -66,7 +66,7 @@ export interface HarnessHistory {
     eventCursor?: {after: number; eventEpoch: string};
 }
 export interface HarnessEventsOptions extends OperationOptions { toolDetail?: 'summary';sessionId?:string }
-export interface HarnessHistoryOptions extends HarnessEventsOptions { cursor?: string }
+export interface HarnessHistoryOptions extends HarnessEventsOptions { cursor?: string; includeUsage?: false }
 export interface HarnessReceipt { requestId: string; outcome: 'committed' | 'not-committed' | 'unknown'; result?: unknown; code?: string }
 export interface HarnessMutationOptions extends OperationOptions { requestId?: string; epoch?: string }
 export interface HarnessCreateOptions extends HarnessMutationOptions {directory?: string}

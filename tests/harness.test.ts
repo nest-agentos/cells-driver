@@ -1,10 +1,23 @@
 import { expect, it, vi } from 'vitest';
 import {validateCommands, validateCommandCatalog} from '../src/harness/commands';
 import { CellsHarnessClient } from '../src/harness/client';
+import { HarnessConversation } from '../src/harness/conversation';
 import { createCellsDriver } from '../src/provider';
 import { validateEvents, validateHistory, validatePage, validateProfiles, validateSession } from '../src/harness/validation';
 
 const session = { id: 's',title:'<script>x</script>',cwd:'/workspace',status:'idle',updatedAt:1,resumable:true };
+it.each([true, false])('defers usage in a prepared conversation only when the node supports it (%s)', async supported => {
+    const profile = {id: 'codex', kind: 'codex', workspaces: [{id: 'p'}], capabilities: {
+        history: true, create: true, resume: true, interrupt: true, interactions: true, historyWithoutUsage: supported,
+    }};
+    const call = vi.fn(async (_name: string, _args: Record<string, unknown>) => ({session, turns: [], nextCursor: null}));
+    const client = new CellsHarnessClient({call, close: vi.fn()});
+    const conversation = new HarnessConversation(client, profile, 'p', session.id);
+    await conversation.read({includeUsage: false});
+    const args = call.mock.calls.find(([name]) => name === 'harness_session_read')?.[1];
+    expect(args?.includeUsage).toBe(supported ? false : undefined);
+    await conversation.close();
+});
 it('negotiates an existing project working directory and retains its original create receipt', async () => {
     let supported = true;
     const call = vi.fn(async (name: string, args: Record<string, unknown>) => name === 'harness_profiles' ? {epoch: 'e', profiles: [
@@ -99,6 +112,15 @@ it('retains distinct creation and modification instants and accepts legacy nativ
     expect(validateSession({...session, updatedAt: 0})).toMatchObject({createdAt: null, updatedAt: null});
     expect(() => validateSession({...session, createdAt: NaN})).toThrow();
 });
+it('uses the first prompt line for a legacy generated title and retains an explicit native name', () => {
+    const date = '2026-11-24 02-00-00Z', prompt = '我读 https://example.test/';
+    const legacy = {...session, title: date, native: {name: date, preview: prompt + '\nContinued input'}};
+    expect(validateHistory({session: legacy, turns: []}).session.title).toBe(prompt);
+    expect(validatePage({sessions: [legacy], nextCursor: null}).sessions[0].title).toBe(prompt);
+    expect(validateSession({...legacy, title: '手动命名', native: {...legacy.native, name: '手动命名'}}).title).toBe('手动命名');
+    expect(validateSession({...legacy, native: {name: date}}).title).toBe(date);
+    expect(validateSession({...legacy, native: {name: date, preview: '字'.repeat(200)}}).title).toBe('字'.repeat(159) + '…');
+});
 it('carries an epoch and stable receipt identity, without replay after a lost response',async () => {
     const call = vi.fn(async (name: string, args: Record<string, unknown>) => {
         if (name === 'harness_profiles') return { epoch:'e',profiles:[] };
@@ -147,7 +169,8 @@ it('reads compact histories and receives live events without a polling RPC', asy
     expect((await client.eventSnapshot('codex',{after:7,eventEpoch:'events'})).cursor).toBe(7);
     expect(call).toHaveBeenCalledOnce();
     expect(call).toHaveBeenCalledWith('harness_session_read',{profileId:'codex',sessionId:'s',cursor:'old',toolDetail:'summary'},expect.anything());
-    expect(subscribe).toHaveBeenCalledWith('harness',{profileId:'codex'},expect.anything());
+    expect(subscribe).toHaveBeenCalledWith('harness',{profileId:'codex',after:7,eventEpoch:'events'},expect.anything());
+    expect(stop).toHaveBeenCalledOnce();
     await client.close(); expect(stop).toHaveBeenCalledOnce();
 });
 

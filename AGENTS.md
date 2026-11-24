@@ -27,7 +27,7 @@ HarnessRecovery 持久化最近已接纳的 submittedTurnId，重开后与 pendi
 
 可选 submissionId 将宿主冻结提交关联到 turn/command 的稳定 requestId；HarnessRecovery 保存独立 submission 的 pending/accepted/rejected 回执，准备子操作仍使用独立请求。核对 create/resume 只确认准备，不接纳未发出的 turn；接纳后存储失败保持 unknown，不能把存储冲突当作原生未执行。
 
-0.4 使用按节点/凭据/授权版本共享的 fetch SSE；Harness、项目目录和进程订阅复用连接。eventSnapshot/directorySnapshot 是本地回放，refresh 是显式投影或权威核对；禁止恢复旧轮询 RPC 或按 active 状态增加定时请求。新增/关闭主题重连时带游标，断线不重放修改；单主题授权错误不能使其他主题离线。
+0.4 使用按节点/凭据/授权版本共享的 fetch SSE 观察源；Harness、项目目录和进程订阅默认复用同一连接。单连接最多 32 项，同一授权观察源最多 8 条连接、256 项。相同主题复用原分组，最后一个订阅者离开时释放；空分组关闭。eventSnapshot/directorySnapshot 是本地回放，refresh 是显式投影或权威核对；禁止恢复旧轮询 RPC 或按 active 状态增加定时请求。新增/关闭主题只重连所属分组并带游标，断线不重放修改；单主题授权错误不能使其他主题离线。
 
 SSE 的连接、主题与观察者故障分别处理；单个 next/error 回调抛错不能使其他订阅失效或阻断重连。HarnessEventFeed 与目录通知逐个隔离观察者，诊断只输出安全类别，不记录异常正文。
 

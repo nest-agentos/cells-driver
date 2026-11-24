@@ -74,6 +74,46 @@ it('leaves subscription capacity available after permanent source rejections', a
         expect(live.next).toHaveBeenCalledOnce();
     } finally { hub.close(); }
 });
+it('shares topics across bounded streams without reconnecting existing observers', async () => {
+    vi.useFakeTimers();
+    const {hub, opened, send} = fixture();
+    const listener = {next: vi.fn(), error: vi.fn()};
+    try {
+        for (let index = 0; index < 32; index++) hub.subscribe('projects', {channelId: String(index)}, listener);
+        await vi.advanceTimersByTimeAsync(0);
+        const overflow = hub.subscribe('harness', {profileId: 'claude'}, listener);
+        const shared = hub.subscribe('harness', {profileId: 'claude', after: 0}, {next: vi.fn(), error: vi.fn()});
+        await vi.advanceTimersByTimeAsync(0);
+        expect(opened.map(row => row.body.subscriptions.length)).toEqual([32, 1]);
+        send(0, opened[0].body.subscriptions[0].id, {epoch: 'first', cursor: 3});
+        send(1, opened[1].body.subscriptions[0].id, {epoch: 'second', cursor: 7});
+        await vi.advanceTimersByTimeAsync(0);
+        expect(listener.next).toHaveBeenCalledTimes(2);
+        overflow();
+        shared();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(opened).toHaveLength(2);
+    } finally { hub.close(); }
+});
+it('supports 256 topics per identity and reclaims capacity when a topic is released', async () => {
+    vi.useFakeTimers();
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const {hub, opened} = fixture();
+    const listener = {next: vi.fn(), error: vi.fn()};
+    const subscribe = (id: number) => hub.subscribe('harness', {profileId: 'p', sessionId: String(id)}, listener);
+    try {
+        const stops = Array.from({length: 256}, (_, index) => subscribe(index));
+        await vi.advanceTimersByTimeAsync(0);
+        expect(opened.map(row => row.body.subscriptions.length)).toEqual(Array(8).fill(32));
+        expect(() => subscribe(256)).toThrow(expect.objectContaining({code: 'EFBIG'}));
+        expect(warning).toHaveBeenCalledWith('[cells] events.admission.failed', expect.objectContaining({streams: 8}));
+        stops[0]();
+        subscribe(256);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(opened).toHaveLength(9);
+        expect(opened[8].body.subscriptions).toHaveLength(32);
+    } finally { hub.close(); }
+});
 it('backs off a failed source while keeping healthy subjects streaming', async () => {
     vi.useFakeTimers(); const {hub,opened,send} = fixture(), a={next:vi.fn(),error:vi.fn()}, b={next:vi.fn(),error:vi.fn()};
     hub.subscribe('projects',{projectId:'a'},a); hub.subscribe('harness',{profileId:'b'},b); await vi.advanceTimersByTimeAsync(0);
