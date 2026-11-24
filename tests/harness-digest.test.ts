@@ -15,6 +15,9 @@ it('rejects wrong session, malformed revisions and non-text projection content',
     expect(() => validateDigest({...value, session: {...session, id: 'other'}}, 's')).toThrow();
     expect(() => validateDigest({...value, revision: 'bad'}, 's')).toThrow();
     expect(() => validateDigest({...value, messages: [{id: 'm', role: 'tool', text: 'hidden'}]}, 's')).toThrow();
+    expect(validateDigest({...value, scan: {historyBytes: 25, contextBytes: 10}}, 's').scan).toEqual({historyBytes: 25, contextBytes: 10});
+    expect(() => validateDigest({...value, scan: {historyBytes: 8 * 1024 * 1024 + 1, contextBytes: 0}}, 's')).toThrow();
+    expect(() => validateDigest({...value, scan: {historyBytes: 1, contextBytes: -1}}, 's')).toThrow();
 });
 it('does not read full history as a fallback on legacy servers', async () => {
     const call = vi.fn(async () => ({epoch: 'e', profiles: []}));

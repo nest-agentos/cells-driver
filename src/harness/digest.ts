@@ -6,6 +6,7 @@ export interface HarnessDigestMessage {id: string; turnId?: string; role: 'user'
 export interface HarnessSessionDigest {
     version: 1; session: HarnessSession; revision: string; messages: HarnessDigestMessage[];
     omittedUnclassified: number; nextCursor: string | null;
+    scan?: {historyBytes: number; contextBytes: number};
 }
 export function validateDigest(value: unknown, sessionId: string): HarnessSessionDigest {
     const row = value as HarnessSessionDigest;
@@ -24,6 +25,9 @@ export function validateDigest(value: unknown, sessionId: string): HarnessSessio
         if (bytes > 2 * 1024 * 1024) throw invalid();
         return {id: message.id, role: message.role, text: message.text, turnId: message.turnId ?? undefined, timestamp: message.timestamp ?? undefined};
     });
-    return {version: 1, session, revision: row.revision, messages, omittedUnclassified: row.omittedUnclassified, nextCursor: row.nextCursor};
+    if (row.scan != null && (!Number.isSafeInteger(row.scan.historyBytes) || row.scan.historyBytes < 0 || row.scan.historyBytes > 8 * 1024 * 1024
+        || !Number.isSafeInteger(row.scan.contextBytes) || row.scan.contextBytes < 0 || row.scan.contextBytes > 8 * 1024 * 1024)) throw invalid();
+    return {version: 1, session, revision: row.revision, messages, omittedUnclassified: row.omittedUnclassified, nextCursor: row.nextCursor,
+        ...(row.scan ? {scan: {historyBytes: row.scan.historyBytes, contextBytes: row.scan.contextBytes}} : {})};
 }
 function invalid(): FSError {return new FSError('EIO', 'Invalid provenance-filtered session digest', 'protocol');}
