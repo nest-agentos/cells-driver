@@ -6,6 +6,19 @@ import { createCellsDriver } from '../src/provider';
 import { validateEvents, validateHistory, validatePage, validateProfiles, validateSession } from '../src/harness/validation';
 
 const session = { id: 's',title:'<script>x</script>',cwd:'/workspace',status:'idle',updatedAt:1,resumable:true };
+it('reads the queue journal once on open and again on a subsequent history read', async () => {
+    const profile = {id: 'codex', kind: 'codex', workspaces: [{id: 'p'}],
+        capabilities: {history: true, create: true, resume: true, interrupt: true, interactions: true}};
+    const client = new CellsHarnessClient({call: vi.fn(async () => ({session, turns: [], nextCursor: null})), close: vi.fn()});
+    const load = vi.fn(async () => ({sessionId: session.id}));
+    const conversation = new HarnessConversation(client, profile, 'p', session.id, true, {
+        epoch: 'e', load, save: vi.fn(), instructions: {enqueue: vi.fn(), edit: vi.fn()},
+    });
+    try {
+        await conversation.read({includeUsage: false}); expect(load).toHaveBeenCalledOnce();
+        await conversation.read(); expect(load).toHaveBeenCalledTimes(2);
+    } finally {await conversation.close();}
+});
 it.each([true, false])('defers usage in a prepared conversation only when the node supports it (%s)', async supported => {
     const profile = {id: 'codex', kind: 'codex', workspaces: [{id: 'p'}], capabilities: {
         history: true, create: true, resume: true, interrupt: true, interactions: true, historyWithoutUsage: supported,

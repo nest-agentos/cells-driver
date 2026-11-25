@@ -337,7 +337,7 @@ export class HarnessConversation implements HarnessConversationPort {
             requests: this.requests, respondingIds: this.responses.map(row => row.id)});
     }
     private async restore() {
-        if (this.loaded) return;
+        if (this.loaded) return false;
         const record = await this.journal?.load();
         if (record?.pending?.consumeDraft !== undefined && record.pending.consumeDraft !== false) throw new FSError('EINVAL', 'Invalid native draft consumption');
         if (record?.sessionId && !this.session) this.session = {id: record.sessionId, title: record.sessionId, cwd: null, status: null, updatedAt: null, resumable: false};
@@ -353,6 +353,7 @@ export class HarnessConversation implements HarnessConversationPort {
         this.draftRevision = record?.draftRevision ?? 0;
         this.commandResults = validateCommandReceipts(record?.commandResults);
         this.draftAttachments = readStoredAttachments(record?.draftAttachments); this.loaded = true;
+        return true;
     }
     private save(sessionId = this.session?.id): Promise<void> {
         const record = {controls: this.controls.records(), instructionQueue: structuredClone(this.instructions.record), sessionId, lastFork: this.lastFork, responses: this.responses.map(row => ({...row})), submission: this.submission ? {...this.submission} : undefined, submittedTurnId: this.submittedTurnId, deletedSessionIds: this.deletedSessionIds, pending: this.pending, draft: this.draft,
@@ -543,9 +544,9 @@ export class HarnessConversation implements HarnessConversationPort {
         }
     }
     async read(options?: {includeUsage?: false}): Promise<HarnessConversationSnapshot> {
-        await this.restore();
+        const restored = await this.restore();
         if(this.journal?.instructions){
-            await this.instructions.reload();
+            if (!restored) await this.instructions.reload();
             for(const command of validateCommandReceipts(this.instructions.record.commandResults))this.commandResults=replaceCommandRecord(this.commandResults,command);
         }
         if (this.pending?.operation === 'delete') return this.reconcile();
